@@ -661,9 +661,9 @@ const MapPicker: React.FC<MapPickerProps> = ({
   /** Creator wallet (EUR) for "pay from wallet" on home missions. */
   const [creatorWalletEgp, setCreatorWalletEgp] = useState<number | null>(null);
   const [viewState, setViewState] = useState({
-    latitude: 42.4411,
-    longitude: 19.2636,
-    zoom: 12,
+    latitude: 42.0932,
+    longitude: 19.0981,
+    zoom: 12.5,
     pitch: 45,
     bearing: 0,
   });
