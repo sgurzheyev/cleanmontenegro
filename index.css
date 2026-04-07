@@ -1,0 +1,507 @@
+/* Slide-up animation for adaptive form panel */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out forwards;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out forwards;
+}
+
+/* Mission photo moderation — “waste verification” style check on safe images */
+@keyframes moderation-safe-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.55);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 20px rgba(52, 211, 153, 0.95);
+  }
+}
+.animate-moderation-safe-pulse {
+  animation: moderation-safe-pulse 2.2s ease-in-out infinite;
+}
+
+/* Делаем кнопки навигации почти невидимыми, пока на них не наведут */
+.mapboxgl-ctrl-group {
+    background: rgba(0, 0, 0, 0.2) !important;
+    border: none !important;
+    transition: opacity 0.3s ease;
+}
+
+.mapboxgl-ctrl-group:hover {
+    opacity: 1 !important;
+    background: rgba(0, 0, 0, 0.6) !important;
+}
+
+.mapboxgl-ctrl-icon {
+    filter: invert(1); /* Чтобы иконки были белыми на темном фоне */
+}
+
+/* ===== UV NEON PALETTE & GEMINI-STYLE ANIMATED BORDER ===== */
+:root {
+  --uv-bg: #020617;
+  --uv-bg-elevated: #0f172a;
+  --uv-accent: #34d399;
+  --uv-accent-bright: #10b981;
+  --uv-neon-cyan: #00ffcc;
+}
+
+@keyframes gemini-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Wrapper: thin border area, clips the spinning gradient */
+.animated-border {
+  position: relative;
+  padding: 2px;
+  border-radius: 9999px; /* pill shape by default; override with rounded-2xl etc. */
+  overflow: hidden;
+}
+
+.animated-border::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  width: 300%;
+  height: 300%;
+  left: 50%;
+  top: 50%;
+  margin-left: -150%;
+  margin-top: -150%;
+  background: conic-gradient(
+    from 0deg,
+    #4285f4,
+    #9b72cb,
+    #d96570,
+    #fbbc04,
+    #4285f4
+  );
+  animation: gemini-spin 4s linear infinite;
+  z-index: 0;
+}
+
+/* Task-specific borders: City = Green, Home = Yellow/Orange */
+.animated-border-city {
+  position: relative;
+  padding: 2px;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.animated-border-city::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  width: 300%;
+  height: 300%;
+  left: 50%;
+  top: 50%;
+  margin-left: -150%;
+  margin-top: -150%;
+  background: conic-gradient(from 0deg, #15803d, #22c55e, #4ade80, #15803d);
+  animation: gemini-spin 4s linear infinite;
+  z-index: 0;
+}
+
+.animated-border-home {
+  position: relative;
+  padding: 2px;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.animated-border-home::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  width: 300%;
+  height: 300%;
+  left: 50%;
+  top: 50%;
+  margin-left: -150%;
+  margin-top: -150%;
+  background: conic-gradient(from 0deg, #ca8a04, #f59e0b, #f97316, #ca8a04);
+  animation: gemini-spin 4s linear infinite;
+  z-index: 0;
+}
+
+.animated-border-inprogress {
+  position: relative;
+  padding: 2px;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.animated-border-inprogress::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  width: 300%;
+  height: 300%;
+  left: 50%;
+  top: 50%;
+  margin-left: -150%;
+  margin-top: -150%;
+  background: conic-gradient(from 0deg, #1d4ed8, #38bdf8, #60a5fa, #1d4ed8);
+  animation: gemini-spin 4s linear infinite;
+  z-index: 0;
+}
+
+.animated-border-completed {
+  position: relative;
+  padding: 2px;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.animated-border-completed::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  width: 300%;
+  height: 300%;
+  left: 50%;
+  top: 50%;
+  margin-left: -150%;
+  margin-top: -150%;
+  background: conic-gradient(from 0deg, #b45309, #f59e0b, #fde68a, #b45309);
+  animation: gemini-spin 4s linear infinite;
+  z-index: 0;
+}
+
+/* Rainbow/Gemini draft pin border */
+.animated-border-rainbow {
+  position: relative;
+  padding: 2px;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.animated-border-rainbow::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  width: 300%;
+  height: 300%;
+  left: 50%;
+  top: 50%;
+  margin-left: -150%;
+  margin-top: -150%;
+  background: conic-gradient(from 0deg, #4285f4, #9b72cb, #d96570, #fbbc04, #4285f4);
+  animation: gemini-spin 4s linear infinite;
+  z-index: 0;
+}
+
+/* Inner: dark background masks center, reveals gradient as border */
+.animated-border-inner {
+  position: relative;
+  z-index: 1;
+  border-radius: inherit;
+  background: var(--uv-bg-elevated);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Rectangular variant (e.g. modals) */
+.animated-border-rect {
+  border-radius: 1.5rem;
+}
+
+.animated-border-rect .animated-border-inner {
+  border-radius: calc(1.5rem - 2px);
+}
+
+/* Drawer variant (rounded left edge only) */
+.animated-border-drawer {
+  border-radius: 1.5rem 0 0 1.5rem;
+}
+
+.animated-border-drawer .animated-border-inner {
+  border-radius: calc(1.5rem - 2px) 0 0 calc(1.5rem - 2px);
+}
+
+/* Luxury pyramid marker — faceted gemstone shape (base) */
+.pyramid-shape-city,
+.pyramid-shape-home,
+.pyramid-shape-draft,
+.pyramid-shape-inprogress,
+.pyramid-shape-completed {
+  clip-path: polygon(50% 100%, 8% 18%, 50% 0%, 92% 18%);
+  background-size: 300% 300%;
+}
+
+/* Draft — Rainbow/Gemini multi-color */
+.pyramid-shape-draft {
+  background: linear-gradient(to bottom right, #4285f4, #9b72cb, #d96570, #fbbc04);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.2),
+    0 0 16px rgba(155, 114, 203, 0.5),
+    0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* City — Green to Neon Green (matches .animated-border-city) */
+.pyramid-shape-city {
+  background: linear-gradient(
+    145deg,
+    #15803d 0%,
+    #22c55e 40%,
+    #4ade80 70%,
+    #22c55e 100%
+  );
+  animation: city-gradient 7s ease-in-out infinite;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.25),
+    0 0 15px rgba(34, 197, 94, 0.8),
+    0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* In progress — blue glow */
+.pyramid-shape-inprogress {
+  background: linear-gradient(145deg, #1d4ed8 0%, #38bdf8 45%, #60a5fa 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.25),
+    0 0 18px rgba(56, 189, 248, 0.55),
+    0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+/* Completed — gold glow */
+.pyramid-shape-completed {
+  background: linear-gradient(145deg, #b45309 0%, #f59e0b 45%, #fde68a 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.25),
+    0 0 18px rgba(245, 158, 11, 0.55),
+    0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes city-gradient {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  33% {
+    background-position: 100% 50%;
+  }
+  66% {
+    background-position: 50% 100%;
+  }
+}
+
+/* Home — Yellow to Orange (matches .animated-border-home) */
+.pyramid-shape-home {
+  background: linear-gradient(
+    145deg,
+    #ca8a04 0%,
+    #f59e0b 40%,
+    #f97316 70%,
+    #f59e0b 100%
+  );
+  animation: home-gradient 7s ease-in-out infinite;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.2),
+    0 0 15px rgba(249, 115, 22, 0.8),
+    0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes home-gradient {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  33% {
+    background-position: 100% 50%;
+  }
+  66% {
+    background-position: 50% 100%;
+  }
+}
+
+/* Soft pulse and glow at pyramid base */
+.pyramid-glow-city {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 100%,
+    rgba(34, 197, 94, 0.5) 0%,
+    rgba(22, 163, 74, 0.3) 30%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: pyramid-breathe 3s ease-in-out infinite;
+}
+
+.pyramid-glow-home {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 100%,
+    rgba(249, 115, 22, 0.5) 0%,
+    rgba(245, 158, 11, 0.3) 30%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: pyramid-breathe 3s ease-in-out infinite;
+}
+
+.pyramid-glow-draft {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 100%,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(155, 114, 203, 0.3) 30%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: pyramid-breathe 3s ease-in-out infinite;
+}
+
+/* In progress — blue base glow */
+.pyramid-glow-inprogress {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 100%,
+    rgba(56, 189, 248, 0.55) 0%,
+    rgba(29, 78, 216, 0.25) 30%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: pyramid-breathe 2.6s ease-in-out infinite;
+}
+
+/* Completed — gold base glow */
+.pyramid-glow-completed {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 100%,
+    rgba(245, 158, 11, 0.55) 0%,
+    rgba(180, 83, 9, 0.25) 30%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: pyramid-breathe 3.2s ease-in-out infinite;
+}
+
+/* Active mission (worker's own in_progress) — pulsing white/blue glow */
+.pyramid-glow-active {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 100%,
+    rgba(96, 165, 250, 0.6) 0%,
+    rgba(255, 255, 255, 0.3) 30%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: pyramid-breathe 2s ease-in-out infinite;
+}
+
+.job-marker-active-pyramid {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 0 16px rgba(96, 165, 250, 0.6),
+    0 0 24px rgba(255, 255, 255, 0.25);
+  animation: active-pulse 2s ease-in-out infinite;
+}
+
+.job-marker-active-pill {
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.5);
+}
+
+@keyframes active-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.15); }
+}
+
+@keyframes pyramid-breathe {
+  0%, 100% {
+    opacity: 0.8;
+    transform: translate(-50%, 0) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1.15);
+  }
+}
+
+/* MissionMarker — Chrono-Glass crystal (shared base; blur/material in component) */
+.mission-marker-crystal-body {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.02) 40%,
+    rgba(0, 0, 0, 0.1) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -12px 24px rgba(0, 0, 0, 0.2),
+    0 0 15px rgba(var(--crystal-rgb), 0.8),
+    0 0 30px rgba(var(--crystal-rgb), 0.25);
+  filter: drop-shadow(0 0 6px rgba(var(--crystal-rgb), 0.8));
+}
+
+/* Draft CREATE — rapid breathing pulse (cyan) */
+@keyframes mission-crystal-draft-breathe {
+  0%,
+  100% {
+    filter: brightness(1) drop-shadow(0 0 6px rgba(0, 255, 255, 0.55)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.2));
+    transform: scale(1);
+  }
+  33% {
+    filter: brightness(1.18) drop-shadow(0 0 14px rgba(0, 255, 255, 0.95)) drop-shadow(0 0 22px rgba(0, 255, 255, 0.45));
+    transform: scale(1.04);
+  }
+  66% {
+    filter: brightness(1.08) drop-shadow(0 0 10px rgba(0, 255, 255, 0.75));
+    transform: scale(1.02);
+  }
+}
+
+.mission-marker-crystal--draft {
+  animation: mission-crystal-draft-breathe 0.95s ease-in-out infinite;
+}
+
+/* Live existing — deep ambient glow (amber) */
+@keyframes mission-crystal-live-glow {
+  0%,
+  100% {
+    filter: brightness(1) drop-shadow(0 0 4px rgba(255, 176, 0, 0.32)) drop-shadow(0 0 12px rgba(255, 176, 0, 0.12));
+  }
+  50% {
+    filter: brightness(1.06) drop-shadow(0 0 9px rgba(255, 176, 0, 0.5)) drop-shadow(0 0 20px rgba(255, 176, 0, 0.18));
+  }
+}
+
+.mission-marker-crystal--live {
+  animation: mission-crystal-live-glow 3.4s ease-in-out infinite;
+}
+
+/* Accent states (in progress / completed / active) — calmer than draft */
+@keyframes mission-crystal-accent-glow {
+  0%,
+  100% {
+    filter: brightness(1) drop-shadow(0 0 5px rgba(var(--crystal-rgb), 0.35));
+  }
+  50% {
+    filter: brightness(1.07) drop-shadow(0 0 11px rgba(var(--crystal-rgb), 0.45));
+  }
+}
+
+.mission-marker-crystal--accent {
+  animation: mission-crystal-accent-glow 3s ease-in-out infinite;
+}

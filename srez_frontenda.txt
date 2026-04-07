@@ -1,0 +1,2864 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+interface PaymentOverlayProps {
+  onClose: (pyramidId?: string) => void;
+  onSuccess?: () => void;
+  lat: number;
+  lng: number;
+  amount: number;
+  type: 'home' | 'city';
+}
+
+const PaymentOverlay: React.FC<PaymentOverlayProps> = ({ onClose, onSuccess, lat, lng, amount, type }) => {
+  const [token, setToken] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState(false);
+  const [pyramidId, setPyramidId] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  const isLoading = !token && !fetchError;
+
+  useEffect(() => {
+    const handlePaymobMsg = (event: MessageEvent) => {
+      if (event.data && typeof event.data === 'string') {
+        if (event.data.includes('success=true') || event.data.includes('TRANSACTION_SUCCESS')) {
+          if (onSuccess) onSuccess();
+          requestAnimationFrame(() => navigate('/profile'));
+        }
+        if (event.data.includes('success=false') || event.data.includes('TRANSACTION_FAILED')) {
+          onClose(pyramidId ?? undefined);
+          setFetchError(true);
+        }
+      }
+    };
+
+    window.addEventListener('message', handlePaymobMsg);
+
+    fetch('/api/paymob-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lng, amount, type }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('API unreachable');
+        return res.json();
+      })
+      .then((data) => {
+        if (data.paymentToken) {
+          setToken(data.paymentToken);
+          if (data.missionId) setPyramidId(data.missionId);
+        } else {
+          throw new Error('Token missing');
+        }
+      })
+      .catch((err) => {
+        console.error('Paymob Error:', err);
+        onClose();
+        setFetchError(true);
+      });
+
+    return () => window.removeEventListener('message', handlePaymobMsg);
+  }, [lat, lng, amount, type, navigate, onSuccess, onClose, pyramidId]);
+
+  useEffect(() => {
+    if (fetchError) {
+      const timer = setTimeout(() => navigate('/try-free'), 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [fetchError, navigate]);
+
+  const depositEgp = amount * 25;
+  const paymobUrl = useMemo(
+    () => (token ? `https://accept.paymob.com/api/acceptance/iframes/1007120?payment_token=${token}` : ''),
+    [token]
+  );
+
+  const stopProp = (e: React.SyntheticEvent) => e.stopPropagation();
+
+  return (
+    <div
+      className="fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center p-4 overscroll-contain"
+      onTouchStart={stopProp}
+      onTouchMove={stopProp}
+      onTouchEnd={stopProp}
+      onMouseDown={stopProp}
+      onWheel={stopProp}
+    >
+      <div
+        className="absolute top-0 right-0 bottom-0 left-0 bg-black/70"
+        onClick={() => onClose(pyramidId ?? undefined)}
+      />
+      <div
+        className="relative w-full max-w-md bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden"
+        style={{ maxHeight: 700 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+          {/* ШАПКА: кнопка закрытия слева сверху */}
+          <div className="flex-none relative flex justify-between items-center p-3 border-b border-gray-200 bg-zinc-950">
+            <button
+              type="button"
+              onClick={() => onClose(pyramidId ?? undefined)}
+              className="absolute top-3 left-3 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-400 text-white font-black text-xs uppercase tracking-wider shadow-lg z-10"
+            >
+              ❌ ЗАКРЫТЬ И СБРОСИТЬ
+            </button>
+            <div className="flex-1 text-center pr-24">
+              <h2 className="text-white text-lg font-black tracking-tighter uppercase italic">
+                Clean<span className="text-cyan-400">Egypt</span>
+              </h2>
+              <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold">${amount} · {depositEgp} EGP</p>
+            </div>
+          </div>
+
+          {/* Контент: лоадер ИЛИ ошибка ИЛИ обёртка iframe */}
+          {isLoading ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-24 bg-white">
+              <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin mb-4" />
+              <p className="text-cyan-600 text-xs font-bold uppercase tracking-widest">Установка защищенного соединения...</p>
+            </div>
+          ) : fetchError ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-24 px-6 bg-white text-center">
+              <p className="text-red-500 font-black text-lg mb-2 uppercase tracking-tighter">Ошибка сервера платежей</p>
+              <p className="text-zinc-500 text-xs uppercase font-bold">Переход к бесплатной проверке через пару секунд...</p>
+            </div>
+          ) : !paymobUrl ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-24 px-6 bg-white text-center">
+              <p className="text-red-500 font-black text-sm mb-2 uppercase tracking-tighter">ОШИБКА: Ссылка на оплату не получена</p>
+              <p className="text-zinc-600 text-xs font-bold">Попробуйте закрыть и создать снова.</p>
+            </div>
+          ) : (
+            <div className="p-8 flex flex-col items-center justify-center text-center">
+              <div className="text-6xl mb-4">🔒</div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-2">Безопасная оплата</h3>
+              <p className="text-gray-500 mb-8">Вы будете перенаправлены на защищенный шлюз Paymob для ввода данных карты.</p>
+              <a
+                href={paymobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-xl text-lg transition-colors"
+              >
+                💳 ПЕРЕЙТИ К ОПЛАТЕ
+              </a>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => onClose(pyramidId ?? undefined)}
+            className="flex-none w-full py-3 text-zinc-500 hover:text-zinc-800 text-[11px] uppercase tracking-widest font-bold border-t border-zinc-200"
+          >
+            [ ОТМЕНА ]
+          </button>
+        </div>
+    </div>
+  );
+};
+
+export default PaymentOverlay;
+// src/components/OrderForm.tsx
+import React, { useState } from 'react';
+// ИСПОЛЬЗУЕМ НАШ НОВЫЙ ПУТЬ СЕРВИСА
+import { supabase } from '../services/supabase'; 
+
+interface Props {
+  selectedLocation: { lat: number; lng: number } | null;
+  onOrderStarted?: () => void; // Для включения синей заглушки загрузки
+}
+
+const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState(''); // ПАРСЕР ИМЕЙЛОВ
+
+  const createOrder = async (type: 'egypt' | 'home', amount: number) => {
+    if (!selectedLocation) return alert("Tap on map first! 📍");
+    if (!email || !email.includes('@')) return alert("Enter valid Email to start! 📧");
+    
+    setLoading(true);
+    if (onOrderStarted) onOrderStarted(); // ВКЛЮЧАЕМ "УСТАНОВКУ СОЕДИНЕНИЯ"
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const creatorId = session?.user?.id ?? null;
+      // 1. Сначала сохраняем лид (email) в базу, даже если оплата не пройдет
+      const { error } = await supabase.from('pyramids').insert([
+        {
+          location: `POINT(${selectedLocation.lng} ${selectedLocation.lat})`,
+          mission_type: type,
+          current_amount: amount,
+          user_email: email, // СОХРАНЯЕМ В ЛАПЫ
+          status: 'pending_payment',
+          creator_id: creatorId
+        }
+      ]);
+
+      if (error) throw error;
+
+      // 2. ИМИТАЦИЯ ПЕРЕХОДА НА ПЛАТЕЖ (PayMob)
+      setTimeout(() => {
+        // Силовой редирект в профиль, чтобы не висела заглушка
+        window.location.href = '/profile'; 
+      }, 2000);
+
+    } catch (error: any) {
+      console.error(error.message);
+      // Если ошибка — всё равно шлем в профиль через 2 секунды
+      setTimeout(() => {
+        window.location.href = '/profile?error=payment_failed';
+      }, 2000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 p-4 bg-black/60 backdrop-blur-md rounded-2xl border border-white/10">
+      {/* ПОЛЕ ВВОДА EMAIL - ТВОЙ ПАРСЕР */}
+      <div className="space-y-2">
+        <label className="text-[10px] text-gray-400 uppercase tracking-widest ml-1">Your Intelligence Email</label>
+        <input 
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="agent@cleanegypt.co"
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/20 focus:border-[#00f2ff] outline-none transition-all"
+        />
+      </div>
+
+      <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em] text-center">
+        {selectedLocation
+          ? `TARGET: ${selectedLocation.lat.toFixed(4)}, ${selectedLocation.lng.toFixed(4)}`
+          : "SELECT TARGET ON MAP"}
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          disabled={loading}
+          onClick={() => createOrder('egypt', 1)}
+          className="py-4 bg-[#39FF14]/10 border border-[#39FF14]/40 text-[#39FF14] rounded-xl font-black italic hover:bg-[#39FF14] hover:text-black transition-all text-xs"
+        >
+          CITY $1
+        </button>
+
+        <button
+          disabled={loading}
+          onClick={() => createOrder('home', 5)}
+          className="py-4 bg-[#f8ff14]/10 border border-[#f8ff14]/40 text-[#f8ff14] rounded-xl font-black italic hover:bg-[#f8ff14] hover:text-black transition-all text-xs"
+        >
+          HOME $5
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default OrderForm;import React, { useState, useCallback, useEffect } from 'react';
+import Map, { Marker, NavigationControl, GeolocateControl, MapRef } from 'react-map-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import imageCompression from 'browser-image-compression';
+import { supabase } from '../lib/supabaseClient';
+import JobMarker from './JobMarker';
+
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+
+type TaskType = 'city' | 'home';
+
+interface JobOnMap {
+  id: string;
+  task_type: TaskType | string;
+  amount: number;
+  location_lat: number;
+  location_lng: number;
+  status: string;
+  worker_id?: string | null;
+  creator_id?: string | null;
+  description?: string | null;
+}
+
+interface MapPickerProps {
+  onLocationSelect: (lat: number, lng: number) => void;
+  selectedCoords?: { lat: number; lng: number } | null;
+  onAvatarClick?: () => void;
+  onRequestAuth?: () => void;
+  flyToTarget?: { lat: number; lng: number } | null;
+  onFlyToComplete?: () => void;
+  orders?: any[]; // legacy, ignored
+  currentAmount?: number; // legacy
+  currentType?: 'home' | 'city'; // legacy
+  hasFullAccess?: boolean; // legacy
+  currentUserId?: string | null; // legacy
+  onRequestPayment?: (params: {
+    lat: number;
+    lng: number;
+    amount: number;
+    type: 'home' | 'city';
+  }) => void; // legacy, ignored
+  showPayment?: boolean; // legacy
+}
+
+const customDarkStyle: any = {
+  version: 8,
+  sources: {
+    composite: {
+      type: 'vector',
+      url: 'mapbox://mapbox.mapbox-streets-v8',
+    },
+  },
+  sprite: 'mapbox://sprites/mapbox/dark-v10',
+  glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
+  layers: [
+    {
+      id: 'background',
+      type: 'background',
+      paint: {
+        'background-color': '#000000',
+      },
+    },
+    {
+      id: 'water',
+      type: 'fill',
+      source: 'composite',
+      'source-layer': 'water',
+      paint: {
+        'fill-color': '#808080',
+      },
+    },
+    {
+      id: 'road',
+      type: 'line',
+      source: 'composite',
+      'source-layer': 'road',
+      paint: {
+        'line-color': '#ffffff',
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          10,
+          0.4,
+          16,
+          2.5,
+        ],
+      },
+    },
+    {
+      id: '3d-buildings',
+      type: 'fill-extrusion',
+      source: 'composite',
+      'source-layer': 'building',
+      minzoom: 15,
+      paint: {
+        'fill-extrusion-color': '#333333',
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          15,
+          0,
+          16,
+          ['get', 'height'],
+        ],
+        'fill-extrusion-base': ['get', 'min_height'],
+        'fill-extrusion-opacity': 0.95,
+      },
+    },
+    {
+      id: 'place_label',
+      type: 'symbol',
+      source: 'composite',
+      'source-layer': 'place_label',
+      minzoom: 3,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 4, 10, 10, 14, 14, 18],
+        'text-anchor': 'center',
+        'text-max-width': 10,
+      },
+      paint: {
+        'text-color': '#e0e0e0',
+        'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+        'text-halo-width': 1.5,
+      },
+    },
+    {
+      id: 'road_label',
+      type: 'symbol',
+      source: 'composite',
+      'source-layer': 'road_label',
+      minzoom: 12,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': 11,
+        'symbol-placement': 'line',
+        'text-rotation-alignment': 'map',
+        'text-pitch-alignment': 'map',
+      },
+      paint: {
+        'text-color': '#c0c0c0',
+        'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+        'text-halo-width': 1.5,
+      },
+    },
+    {
+      id: 'water_name_line',
+      type: 'symbol',
+      source: 'composite',
+      'source-layer': 'waterway_label',
+      minzoom: 10,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': 11,
+        'symbol-placement': 'line',
+      },
+      paint: {
+        'text-color': '#a0a0a0',
+        'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+        'text-halo-width': 1.5,
+      },
+    },
+    {
+      id: 'water_name_point',
+      type: 'symbol',
+      source: 'composite',
+      'source-layer': 'water_name',
+      minzoom: 4,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 4, 10, 10, 14],
+      },
+      paint: {
+        'text-color': '#a0a0a0',
+        'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+        'text-halo-width': 1.5,
+      },
+    },
+  ],
+};
+
+const MapPicker: React.FC<MapPickerProps> = ({
+  onLocationSelect,
+  selectedCoords = null,
+  onAvatarClick,
+  onRequestAuth,
+  flyToTarget,
+  onFlyToComplete,
+}) => {
+  const mapRef = React.useRef<MapRef>(null);
+  const [viewState, setViewState] = useState({
+    latitude: 27.2579,
+    longitude: 33.8116,
+    zoom: 13,
+    pitch: 55,
+    bearing: -20,
+  });
+
+  const [jobs, setJobs] = useState<JobOnMap[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState<
+    { lat: number; lng: number } | null
+  >(selectedCoords || null);
+
+  // Adaptive UI: task type selected = show form overlay
+  const [taskTypeSelected, setTaskTypeSelected] = useState<TaskType | null>(null);
+  const [taskType, setTaskType] = useState<TaskType>('city');
+  const [orderAmount, setOrderAmount] = useState('');
+  const [orderDescription, setOrderDescription] = useState('');
+  const [orderPhotos, setOrderPhotos] = useState<File[]>([]);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const [orderSubmitting, setOrderSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
+
+  const selectTaskType = useCallback((type: TaskType) => {
+    setTaskType(type);
+    setTaskTypeSelected(type);
+    setOrderError(null);
+    setOrderSuccess(null);
+  }, []);
+
+  const closeFormOverlay = useCallback(() => {
+    if (!orderSubmitting) {
+      setTaskTypeSelected(null);
+      setOrderError(null);
+      setOrderSuccess(null);
+    }
+  }, [orderSubmitting]);
+
+  // Bidding modal state
+  const [bidJob, setBidJob] = useState<JobOnMap | null>(null);
+  const [bidAmount, setBidAmount] = useState('');
+  const [bidSubmitting, setBidSubmitting] = useState(false);
+  const [bidError, setBidError] = useState<string | null>(null);
+  const [bidSuccess, setBidSuccess] = useState<string | null>(null);
+
+  const [activeBidCounts, setActiveBidCounts] = useState<Record<string, number>>({});
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) =>
+      setCurrentUserId(session?.user?.id ?? null)
+    );
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUserId(session?.user?.id ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Fetch pending and in_progress jobs from Supabase
+  const fetchJobs = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id, task_type, amount, location_lat, location_lng, status, worker_id, creator_id, description')
+      .in('status', ['pending', 'in_progress'])
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (error) {
+      console.error(
+        'Ошибка загрузки jobs с Supabase:',
+        error.message,
+        (error as any)?.details || ''
+      );
+      setJobs([]);
+      return;
+    }
+
+    const list: JobOnMap[] = (data || []).filter(
+      (row: any) =>
+        typeof row.location_lat === 'number' &&
+        typeof row.location_lng === 'number'
+    ) as JobOnMap[];
+
+    setJobs(list);
+
+    // Fetch active bid counts (pending bids) for marker badges
+    try {
+      const jobIds = (list || []).map((j) => j.id);
+      if (jobIds.length === 0) {
+        setActiveBidCounts({});
+        return;
+      }
+      const { data: bidsData } = await supabase
+        .from('bids')
+        .select('job_id')
+        .in('job_id', jobIds)
+        .eq('status', 'pending');
+      const counts: Record<string, number> = {};
+      for (const row of (bidsData || []) as any[]) {
+        const jid = row.job_id as string;
+        counts[jid] = (counts[jid] || 0) + 1;
+      }
+      setActiveBidCounts(counts);
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    const handleFocus = () => fetchJobs();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    const onPaymentSuccess = () => {
+      // Initial refresh
+      fetchJobs();
+      // Simple polling to wait for webhook to finish inserting the job
+      setTimeout(() => fetchJobs(), 1500);
+      setTimeout(() => fetchJobs(), 4000);
+    };
+    window.addEventListener('paymentSuccess', onPaymentSuccess);
+    return () => window.removeEventListener('paymentSuccess', onPaymentSuccess);
+  }, [fetchJobs]);
+
+  // Fly to job location when requested from Profile "View on Map"
+  useEffect(() => {
+    if (!flyToTarget || !mapRef.current) return;
+    const map = mapRef.current.getMap();
+    if (!map) return;
+    map.flyTo({
+      center: [flyToTarget.lng, flyToTarget.lat],
+      zoom: 16,
+      essential: true,
+      duration: 2000,
+    });
+    onFlyToComplete?.();
+  }, [flyToTarget, onFlyToComplete]);
+
+  const PENDING_SUBMIT_KEY = 'cleaneypt_pending_submit';
+
+  const executePaymentFlow = useCallback(
+    async (payload: {
+      amount: number;
+      taskType: TaskType;
+      location: { lat: number; lng: number };
+      description: string;
+      creatorPhotos?: string[];
+    }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+
+      const res = await fetch('/api/paymob-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'job_creation',
+          userId: session.user.id,
+          amount: payload.amount,
+          taskType: payload.taskType,
+          location_lat: payload.location.lat,
+          location_lng: payload.location.lng,
+          description: payload.description || undefined,
+          creator_photos: payload.creatorPhotos && payload.creatorPhotos.length > 0 ? payload.creatorPhotos : undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Payment init failed (${res.status})`);
+      }
+
+      const data = (await res.json()) as {
+        paymentUrl?: string;
+        paymentToken?: string;
+      };
+
+      if (data.paymentUrl) {
+        sessionStorage.setItem('paymentReturnType', 'job_creation');
+        window.location.assign(data.paymentUrl);
+        return;
+      }
+      if (data.paymentToken) {
+        sessionStorage.setItem('paymentReturnType', 'job_creation');
+        const iframeId =
+          (import.meta.env.VITE_PAYMOB_IFRAME_ID as string | undefined) || '1007120';
+        const url = `https://accept.paymob.com/api/acceptance/iframes/${iframeId}?payment_token=${data.paymentToken}`;
+        window.location.assign(url);
+      } else {
+        throw new Error('No payment URL or token received.');
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    const run = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+
+      const raw = localStorage.getItem(PENDING_SUBMIT_KEY);
+      if (!raw) return;
+
+      try {
+        const saved = JSON.parse(raw) as {
+          taskType?: TaskType;
+          amount?: string | number;
+          location_lat?: number;
+          location_lng?: number;
+          description?: string;
+        };
+        const amount = typeof saved.amount === 'number' ? saved.amount : parseFloat(String(saved.amount || '0').replace(',', '.'));
+        if (isNaN(amount) || amount <= 0) {
+          localStorage.removeItem(PENDING_SUBMIT_KEY);
+          return;
+        }
+        if (typeof saved.location_lat !== 'number' || typeof saved.location_lng !== 'number') {
+          localStorage.removeItem(PENDING_SUBMIT_KEY);
+          return;
+        }
+
+        localStorage.removeItem(PENDING_SUBMIT_KEY);
+
+        setTaskType(saved.taskType || 'city');
+        setTaskTypeSelected(saved.taskType || 'city');
+        setOrderAmount(String(amount));
+        setSelectedLocation({ lat: saved.location_lat, lng: saved.location_lng });
+        setOrderDescription(saved.description || '');
+        setOrderError(null);
+        setOrderSuccess(null);
+
+        await executePaymentFlow({
+          amount,
+          taskType: (saved.taskType as TaskType) || 'city',
+          location: { lat: saved.location_lat, lng: saved.location_lng },
+          description: saved.description || '',
+        });
+      } catch (e) {
+        console.error('Pending submit restore error:', e);
+        localStorage.removeItem(PENDING_SUBMIT_KEY);
+      }
+    };
+    run();
+  }, [executePaymentFlow]);
+
+  const handleMapClick = useCallback(
+    (event: any) => {
+      if (!event?.lngLat) return;
+      const { lng, lat } = event.lngLat;
+
+      setSelectedLocation({ lat, lng });
+      onLocationSelect(lat, lng);
+    },
+    [onLocationSelect]
+  );
+
+  const [selectedMission, setSelectedMission] = useState<JobOnMap | null>(null);
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [showBidInput, setShowBidInput] = useState(false);
+  const [missionBidAmount, setMissionBidAmount] = useState<string>('');
+
+  const handleMarkerClick = useCallback((job: JobOnMap) => {
+    setSelectedMission(job);
+    setShowBidInput(false);
+    setMissionBidAmount(String(job.amount ?? ''));
+  }, []);
+
+  const handleCloseMissionBriefing = useCallback(() => {
+    setSelectedMission(null);
+    setShowBidInput(false);
+    setMissionBidAmount('');
+  }, []);
+
+  const handleSubmitMissionBid = useCallback(async () => {
+    if (!selectedMission) return;
+    setIsAccepting(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user?.id) {
+        onRequestAuth?.();
+        return;
+      }
+      if (selectedMission.creator_id && selectedMission.creator_id === user.id) {
+        alert('You cannot bid on your own job.');
+        return;
+      }
+      const amt = parseFloat((missionBidAmount || '').replace(',', '.'));
+      if (isNaN(amt) || amt <= 0) {
+        alert('Please enter a positive USD amount.');
+        return;
+      }
+
+      // Use RPC to place mission bid (handles balance/frozen_balance internally)
+      const { error } = await supabase.rpc('place_mission_bid', {
+        mission_id: selectedMission.id,
+        amount_egp: amt,
+      });
+      if (error) {
+        alert(error.message || 'Failed to place bid. Please try again.');
+        return;
+      }
+
+      await fetchJobs();
+      handleCloseMissionBriefing();
+    } catch (err: any) {
+      alert(err?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setIsAccepting(false);
+    }
+  }, [fetchJobs, handleCloseMissionBriefing, missionBidAmount, onRequestAuth, selectedMission]);
+
+  const handleCloseBidModal = useCallback(() => {
+    if (!bidSubmitting) {
+      setBidJob(null);
+      setBidAmount('');
+      setBidError(null);
+      setBidSuccess(null);
+    }
+  }, [bidSubmitting]);
+
+  const handlePlaceBid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bidJob) return;
+    setBidError(null);
+    setBidSuccess(null);
+
+    const amount = parseFloat(bidAmount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      setBidError('Please enter a positive USD amount.');
+      return;
+    }
+
+    try {
+      setBidSubmitting(true);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        setBidError('You must be signed in to place a bid.');
+        return;
+      }
+
+      const { error } = await supabase.from('bids').insert([
+        {
+          job_id: bidJob.id,
+          worker_id: session.user.id,
+          bid_amount: amount,
+          status: 'pending',
+        },
+      ]);
+
+      if (error) {
+        console.error('Error placing bid:', error.message);
+        setBidError('Could not place bid. Please try again.');
+        return;
+      }
+
+      setBidSuccess('Bid placed successfully.');
+      setBidAmount('');
+      await fetchJobs();
+      setTimeout(() => {
+        handleCloseBidModal();
+      }, 1200);
+    } catch (err) {
+      console.error('Bid exception:', err);
+      setBidError('Unexpected error. Please try again.');
+    } finally {
+      setBidSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOrderError(null);
+    setOrderSuccess(null);
+
+    const amount = parseFloat(orderAmount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      setOrderError('Please enter any positive USD value.');
+      return;
+    }
+    if (!selectedLocation) {
+      setOrderError('Tap on the map to choose a location.');
+      return;
+    }
+
+    try {
+      setOrderSubmitting(true);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        localStorage.setItem(
+          PENDING_SUBMIT_KEY,
+          JSON.stringify({
+            taskType,
+            amount,
+            location_lat: selectedLocation.lat,
+            location_lng: selectedLocation.lng,
+            description: orderDescription || '',
+          })
+        );
+        setOrderSubmitting(false);
+        onRequestAuth?.();
+        return;
+      }
+
+      // 1) Compress and upload creator proof photos (if any)
+      let creatorPhotoUrls: string[] | undefined;
+      if (orderPhotos.length > 0) {
+        setUploadingProof(true);
+        const uploaded: string[] = [];
+        const compressionOptions = {
+          maxSizeMB: 0.8,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+        };
+        const compressedFiles: File[] = [];
+        for (const file of orderPhotos) {
+          try {
+            const compressed = await imageCompression(file, compressionOptions);
+            compressedFiles.push(compressed);
+          } catch (err) {
+            console.warn('Compression failed for', file.name, err);
+            compressedFiles.push(file);
+          }
+        }
+        for (const file of compressedFiles) {
+          const ext = file.name.split('.').pop() || 'jpg';
+          const fileName = `creator_${session.user.id}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+          const { error: uploadError } = await supabase.storage
+            .from('order-photos')
+            .upload(fileName, file, { upsert: false });
+          if (uploadError) {
+            throw uploadError;
+          }
+          const { data: { publicUrl } } = supabase.storage
+            .from('order-photos')
+            .getPublicUrl(fileName);
+          uploaded.push(publicUrl);
+        }
+        creatorPhotoUrls = uploaded;
+      }
+
+      // 2) Kick off Paymob flow with creator_photos attached to pending job
+      await executePaymentFlow({
+        amount,
+        taskType,
+        location: selectedLocation,
+        description: orderDescription || '',
+        creatorPhotos: creatorPhotoUrls,
+      });
+    } catch (err) {
+      console.error('Job submit exception:', err);
+      setOrderError(
+        err instanceof Error ? err.message : 'Unexpected error. Please try again.'
+      );
+    } finally {
+      setUploadingProof(false);
+      setOrderSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="w-full h-screen relative bg-black overflow-hidden">
+      {/* Full-screen 3D map — no blocking overlays */}
+      <Map
+        ref={mapRef}
+        {...viewState}
+        onMove={(evt) => setViewState(evt.viewState)}
+        onClick={handleMapClick}
+        mapStyle={customDarkStyle}
+        mapboxAccessToken={MAPBOX_TOKEN}
+        style={{ width: '100%', height: '100%' }}
+      >
+        <GeolocateControl
+          position="bottom-right"
+          positionOptions={{ enableHighAccuracy: true }}
+          trackUserLocation
+        />
+        <NavigationControl position="bottom-right" showCompass={false} />
+
+        {/* Job markers — luxury pyramids (pending for all; in_progress only for assigned worker) */}
+        {(jobs || [])
+          .filter((job) => {
+            if (job.status === 'pending') return true;
+            if (job.status === 'in_progress') return job.worker_id === currentUserId;
+            return false;
+          })
+          .map((job) => {
+            const isMyActiveMission = job.status === 'in_progress' && job.worker_id === currentUserId;
+            const bidCount = activeBidCounts[job.id] || 0;
+            return (
+              <Marker
+                key={job.id}
+                latitude={job.location_lat}
+                longitude={job.location_lng}
+                anchor="bottom"
+              >
+                <JobMarker
+                  amount={job.amount}
+                  orderType={job.task_type === 'home' ? 'home' : 'city'}
+                  label={isMyActiveMission ? 'MY MISSION' : undefined}
+                  isActive={isMyActiveMission}
+                  bidCount={job.status === 'pending' ? bidCount : 0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMarkerClick(job);
+                  }}
+                />
+              </Marker>
+            );
+          })}
+
+        {/* Draft pin — rainbow pyramid when user drops a pin on the map */}
+        {selectedLocation && (
+          <Marker
+            latitude={selectedLocation.lat}
+            longitude={selectedLocation.lng}
+            anchor="bottom"
+          >
+            <JobMarker
+              amount={0}
+              orderType="city"
+              isDraft
+            />
+          </Marker>
+        )}
+      </Map>
+
+      {/* Minimalist overlays — wrapper is pointer-events-none so map stays interactive */}
+      <div className="absolute inset-0 pointer-events-none z-[80] flex flex-col">
+        {/* Header: CleanEgypt.co (non-interactive) + profile avatar (clickable) */}
+        <header className="flex items-center justify-between px-5 pt-5">
+          <h1 className="text-sm font-medium tracking-wide text-white pointer-events-none">
+            CleanEgypt.co
+          </h1>
+          <button
+            type="button"
+            onClick={onAvatarClick}
+            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:border-emerald-400/50 hover:shadow-[0_0_16px_rgba(16,185,129,0.3)] transition-all"
+          >
+            👤
+          </button>
+        </header>
+
+        {/* Upper center: heading is non-interactive; only pill buttons capture clicks */}
+        {!taskTypeSelected && (
+          <div className="flex-1 flex flex-col items-center pt-[18vh] px-6">
+            <h2 className="text-xl sm:text-2xl font-semibold text-white mb-10 text-center tracking-tight pointer-events-none">
+              What needs cleaning?
+            </h2>
+            <div className="flex flex-col sm:flex-row gap-4 w-full max-w-sm justify-center pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => selectTaskType('city')}
+                className="rounded-full px-6 py-3.5 bg-black/60 backdrop-blur-md border-2 border-emerald-400/60 text-white font-medium text-sm shadow-[0_0_28px_rgba(52,211,153,0.5)] hover:shadow-[0_0_36px_rgba(52,211,153,0.6)] hover:border-emerald-400 transition-all active:scale-[0.98]"
+              >
+                Clean City Area
+              </button>
+              <button
+                type="button"
+                onClick={() => selectTaskType('home')}
+                className="rounded-full px-6 py-3.5 bg-black/60 backdrop-blur-md border-2 border-amber-400/60 text-white font-medium text-sm shadow-[0_0_28px_rgba(251,191,36,0.5)] hover:shadow-[0_0_36px_rgba(251,191,36,0.6)] hover:border-amber-400 transition-all active:scale-[0.98]"
+              >
+                Clean Your Home/Office
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Adaptive form — slides up from bottom only after City or Home selected */}
+      {taskTypeSelected && (
+        <div
+          className="absolute inset-0 z-[90] flex items-end justify-center p-4 pointer-events-none"
+          aria-hidden="false"
+        >
+          <div className="pointer-events-auto w-full max-w-xl rounded-2xl bg-black/75 backdrop-blur-xl border border-white/10 shadow-2xl p-5 space-y-4 animate-slide-up">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                  {taskType === 'city' ? 'Clean City Area' : 'Clean Your Home/Office'}
+                </p>
+                <button
+                  type="button"
+                  onClick={closeFormOverlay}
+                  disabled={orderSubmitting}
+                  className="text-slate-500 hover:text-white text-lg font-bold disabled:opacity-40"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                    Amount (USD)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    value={orderAmount}
+                    onChange={(e) => setOrderAmount(e.target.value)}
+                    placeholder="Any amount"
+                    className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                    Location
+                  </label>
+                  <div className="flex items-center gap-2 rounded-2xl bg-black/40 border border-white/10 px-3 py-2.5">
+                    <span className="text-slate-400 text-sm">📍</span>
+                    <p className="flex-1 text-xs text-slate-300">
+                      {selectedLocation
+                        ? `${selectedLocation.lat.toFixed(4)}, ${selectedLocation.lng.toFixed(4)}`
+                        : 'Tap on the 3D map to select'}
+                    </p>
+                  </div>
+                  {!selectedLocation && (
+                    <p className="mt-1 text-[10px] text-amber-300 uppercase tracking-[0.18em]">
+                      Please tap on the map to set a location.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                    Upload photo
+                  </label>
+                <label className="flex h-[52px] items-center justify-center rounded-2xl border border-dashed border-slate-600 bg-black/30 text-[11px] text-slate-400 cursor-pointer hover:border-teal-400 hover:text-teal-300 transition-all">
+                  {orderPhotos.length > 0 ? `${orderPhotos.length} photo(s) selected` : 'Tap to add reference photos (up to 10)'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                    multiple
+                      className="hidden"
+                      onChange={(e) => {
+                      const files = Array.from(e.target.files || []).slice(0, 10);
+                      setOrderPhotos(files);
+                      }}
+                    />
+                  </label>
+                {orderPhotos.length > 0 && (
+                  <div className="mt-2">
+                    {orderPhotos.length <= 4 ? (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-500/10 border border-amber-400/50 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-300">
+                        Low Proof Work (Worker takes at own risk)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/50 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
+                        High Proof Work
+                      </span>
+                    )}
+                  </div>
+                )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  Short description & area
+                </label>
+                <textarea
+                  value={orderDescription}
+                  onChange={(e) => setOrderDescription(e.target.value)}
+                  rows={2}
+                  placeholder={
+                    taskType === 'city'
+                      ? 'Describe the city spot you want to support...'
+                      : 'Describe your home cleaning task and area size...'
+                  }
+                  className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500 resize-none"
+                />
+              </div>
+
+              {orderError && (
+                <p className="text-xs text-red-400 font-medium">{orderError}</p>
+              )}
+              {orderSuccess && (
+                <p className="text-xs text-emerald-400 font-medium">{orderSuccess}</p>
+              )}
+
+              <div className={`w-full mt-1 rounded-full ${taskType === 'city' ? 'animated-border-city' : 'animated-border-home'} ${orderSubmitting || uploadingProof || !selectedLocation ? 'opacity-60' : ''}`}>
+                <button
+                  type="submit"
+                  disabled={orderSubmitting || uploadingProof || !selectedLocation}
+                  className="animated-border-inner w-full rounded-full px-6 py-3 text-sm font-black uppercase tracking-[0.24em] transition-all text-white bg-[#020617] hover:brightness-110 disabled:cursor-not-allowed active:scale-[0.98]"
+                >
+                  {uploadingProof || orderSubmitting
+                    ? 'Processing...'
+                    : 'Submit Task & Pay'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bidding modal — dark glassmorphism */}
+      {bidJob && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={handleCloseBidModal}
+          aria-hidden="false"
+        >
+          <div
+            className="w-full max-w-md animated-border animated-border-rect rounded-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="animated-border-inner w-full rounded-3xl bg-[#020617]/95 backdrop-blur-xl p-6"
+            >
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-black uppercase tracking-[0.18em] text-white">
+                Place bid
+              </h3>
+              <button
+                type="button"
+                onClick={handleCloseBidModal}
+                disabled={bidSubmitting}
+                className="text-slate-400 hover:text-white text-lg font-bold disabled:opacity-40 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div className="rounded-2xl bg-black/40 border border-white/10 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-1">
+                  Target amount
+                </p>
+                <p className="text-xl font-black text-amber-400">
+                  ${bidJob.amount}
+                </p>
+              </div>
+              {bidJob.description && (
+                <div className="rounded-2xl bg-black/40 border border-white/10 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-1">
+                    Description
+                  </p>
+                  <p className="text-sm text-slate-300 whitespace-pre-wrap">
+                    {bidJob.description}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handlePlaceBid} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  Your bid (USD)
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={bidAmount}
+                  onChange={(e) => setBidAmount(e.target.value)}
+                  placeholder="Enter your bid amount"
+                  className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+
+              {bidError && (
+                <p className="text-xs text-red-400 font-medium">{bidError}</p>
+              )}
+              {bidSuccess && (
+                <p className="text-xs text-emerald-400 font-medium">{bidSuccess}</p>
+              )}
+
+              <div className={`rounded-full animated-border-home ${bidSubmitting ? 'opacity-60' : ''}`}>
+                <button
+                  type="submit"
+                  disabled={bidSubmitting}
+                  className="animated-border-inner w-full rounded-full px-6 py-3 text-sm font-black uppercase tracking-[0.24em] text-white bg-[#020617] hover:brightness-110 transition-all disabled:cursor-wait active:scale-[0.98]"
+                >
+                  {bidSubmitting ? 'Placing bid...' : 'Place bid'}
+                </button>
+              </div>
+            </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mission Briefing — bottom sheet when pyramid marker clicked */}
+      {selectedMission && (
+        <div
+          className="absolute inset-0 z-[95] flex items-end justify-center"
+          aria-hidden="false"
+        >
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={handleCloseMissionBriefing}
+            aria-hidden="true"
+          />
+          <div
+            className="relative w-full max-w-xl rounded-t-3xl bg-[#020617]/98 backdrop-blur-xl border-t border-x border-white/10 shadow-2xl p-6 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h2 className="text-[10px] font-black uppercase tracking-[0.35em] text-slate-500">
+                  MISSION BRIEFING
+                </h2>
+                {selectedMission.status === 'in_progress' && selectedMission.worker_id === currentUserId && (
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-sky-400 mt-1">Your active mission</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseMissionBriefing}
+                className="p-2 -m-2 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{selectedMission.task_type === 'home' ? '🏠' : '🌆'}</span>
+                <div>
+                  <p className={`text-[10px] font-bold uppercase tracking-[0.2em] ${selectedMission.task_type === 'city' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {selectedMission.task_type === 'city' ? 'City Cleaning' : 'Home Cleaning'}
+                  </p>
+                  <p className="text-xs text-slate-500 font-mono">
+                    {selectedMission.location_lat.toFixed(5)}, {selectedMission.location_lng.toFixed(5)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="py-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-1">Reward</p>
+                <p className={`text-4xl sm:text-5xl font-black tracking-tight ${selectedMission.task_type === 'city' ? 'text-emerald-400' : 'text-amber-400'}`} style={{ textShadow: selectedMission.task_type === 'city' ? '0 0 24px rgba(52, 211, 153, 0.6)' : '0 0 24px rgba(251, 191, 36, 0.6)' }}>
+                  ${selectedMission.amount}
+                </p>
+              </div>
+
+              {selectedMission.description && (
+                <p className="text-sm text-slate-400">{selectedMission.description}</p>
+              )}
+            </div>
+
+            {selectedMission.status === 'in_progress' && selectedMission.worker_id === currentUserId ? (
+              <div className="w-full rounded-full animated-border-city">
+                <button
+                  type="button"
+                  onClick={() => handleCloseMissionBriefing()}
+                  className="animated-border-inner w-full rounded-full py-4 text-sm font-black uppercase tracking-[0.24em] text-white bg-[#020617] hover:brightness-110 transition-all active:scale-[0.98]"
+                >
+                  Start Work / Upload Proof
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {showBidInput && (
+                  <div className="rounded-2xl bg-black/40 border border-white/10 px-4 py-3">
+                    <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-2">
+                      Your bid (USD)
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      value={missionBidAmount}
+                      onChange={(e) => setMissionBidAmount(e.target.value)}
+                      className={`w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none ${
+                        selectedMission.task_type === 'city'
+                          ? 'focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                          : 'focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
+                      }`}
+                      placeholder={`Default: $${selectedMission.amount}`}
+                    />
+                  </div>
+                )}
+
+                <div
+                  className={`w-full rounded-full ${
+                    selectedMission.task_type === 'city' ? 'animated-border-city' : 'animated-border-home'
+                  } ${isAccepting ? 'opacity-60' : ''}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!showBidInput) {
+                        setShowBidInput(true);
+                        if (!missionBidAmount) setMissionBidAmount(String(selectedMission.amount ?? ''));
+                        return;
+                      }
+                      handleSubmitMissionBid();
+                    }}
+                    disabled={isAccepting}
+                    className="animated-border-inner w-full rounded-full py-4 text-sm font-black uppercase tracking-[0.24em] text-white bg-[#020617] hover:brightness-110 transition-all active:scale-[0.98] disabled:cursor-wait"
+                  >
+                    {isAccepting ? 'PLACING...' : showBidInput ? 'PLACE BID' : 'MAKE A BID'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+export default MapPicker;
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabaseClient';
+
+interface ProfileProps {
+  isOpen: boolean;
+  onClose: () => void;
+  session: any;
+  onNavigateToJob?: (lat: number, lng: number) => void;
+}
+
+interface Job {
+  id: string;
+  creator_id: string | null;
+  worker_id: string | null;
+  task_type: 'city' | 'home' | string;
+  amount: number;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  status: string;
+  description?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  worker_before_photos?: string[] | null;
+  worker_after_photos?: string[] | null;
+  is_disputed?: boolean | null;
+}
+
+interface Bid {
+  id: string;
+  job_id: string;
+  worker_id: string;
+  bid_amount: number;
+  status: string;
+  created_at?: string;
+}
+
+interface ProfileRow {
+  id: string;
+  balance_egp: number | null;
+  is_verified?: boolean;
+  verification_status?: string | null;
+  full_name?: string | null;
+}
+
+const SUPPORT_TELEGRAM = 'https://t.me/CleanEgypt_Admin_Bot';
+
+const shortId = (id: unknown): string => {
+  if (id == null) return 'N/A';
+  try {
+    return String(id).slice(0, 8);
+  } catch {
+    return 'N/A';
+  }
+};
+
+function JobTimer({ startedAt }: { startedAt: string }) {
+  const [elapsed, setElapsed] = useState('');
+  useEffect(() => {
+    const format = (ms: number) => {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const h = Math.floor(m / 60);
+      if (h > 0) return `${h}h ${m % 60}m`;
+      if (m > 0) return `${m}m ${s % 60}s`;
+      return `${s}s`;
+    };
+    const tick = () => {
+      const start = new Date(startedAt).getTime();
+      setElapsed(format(Date.now() - start));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return <span className="tabular-nums text-emerald-400 font-bold">{elapsed}</span>;
+}
+
+const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, onNavigateToJob }) => {
+  const [balance, setBalance] = useState(0);
+  const [myHomeJobs, setMyHomeJobs] = useState<Job[]>([]);
+  const [myCityJobs, setMyCityJobs] = useState<Job[]>([]);
+  const [myActiveJobs, setMyActiveJobs] = useState<Job[]>([]);
+  const [jobBidsById, setJobBidsById] = useState<Record<string, Bid[]>>({});
+  const [marketplaceJobs, setMarketplaceJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [marketLoading, setMarketplaceLoading] = useState(true);
+  const [marketError, setMarketplaceError] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<ProfileRow | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+  const [paymentSyncing, setPaymentSyncing] = useState(false);
+  const [reviewJob, setReviewJob] = useState<Job | null>(null);
+  const [taskType, setTaskType] = useState<'city' | 'home'>('city');
+  const [orderAmount, setOrderAmount] = useState('');
+  const [orderLocation, setOrderLocation] = useState('');
+  const [orderDescription, setOrderDescription] = useState('');
+  const [orderPhoto, setOrderPhoto] = useState<File | null>(null);
+  const [orderSubmitting, setOrderSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  // Worker proof-of-work modal (before/after photos)
+  const [proofJob, setProofJob] = useState<Job | null>(null);
+  const [proofPhase, setProofPhase] = useState<'before' | 'after'>('before');
+  const [proofFiles, setProofFiles] = useState<File[]>([]);
+  const [proofSubmitting, setProofSubmitting] = useState(false);
+  const [proofError, setProofError] = useState<string | null>(null);
+  const [proofSuccess, setProofSuccess] = useState<string | null>(null);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    onClose();
+  };
+
+  const verifyJobPaymentAndRefetch = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch('/api/verify-job-payment', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      await res.json().catch(() => ({}));
+    } catch (e) {
+      console.error('Verify job payment error:', e);
+    } finally {
+      sessionStorage.removeItem('paymentSuccessNeedsVerify');
+    }
+    await fetchProfileData();
+    await fetchMarketplaceJobs();
+  }, []);
+
+  useEffect(() => {
+    const runFallbackIfNeeded = async () => {
+      const needsVerify = sessionStorage.getItem('paymentSuccessNeedsVerify');
+      if (needsVerify !== 'job_creation') return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      setPaymentSyncing(true);
+      try {
+        await verifyJobPaymentAndRefetch();
+      } finally {
+        setPaymentSyncing(false);
+      }
+    };
+    runFallbackIfNeeded();
+  }, [verifyJobPaymentAndRefetch]);
+
+  useEffect(() => {
+    const onPaymentSuccess = () => {
+      const needsVerify = sessionStorage.getItem('paymentSuccessNeedsVerify');
+      setPaymentSyncing(true);
+      (needsVerify === 'job_creation' ? verifyJobPaymentAndRefetch() : Promise.all([fetchProfileData(), fetchMarketplaceJobs()]))
+        .finally(() => setPaymentSyncing(false));
+    };
+    window.addEventListener('paymentSuccess', onPaymentSuccess);
+    return () => window.removeEventListener('paymentSuccess', onPaymentSuccess);
+  }, [verifyJobPaymentAndRefetch]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const loadOnce = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        await fetchProfileData();
+        await fetchMarketplaceJobs();
+      } catch (e) {
+        console.error('Profile init fetch error:', e);
+      }
+    };
+    loadOnce();
+  }, [isOpen]);
+
+  const fetchProfileData = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        setMyHomeJobs([]);
+        setMyCityJobs([]);
+        setMyActiveJobs([]);
+        setJobBidsById({});
+        setLoading(false);
+        return;
+      }
+      const userId = session.user.id;
+      setUserEmail(session.user.email ?? null);
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      const profileRow = profile as ProfileRow | null;
+      setUserProfile(profileRow ?? null);
+      if (profileRow) {
+        setBalance(profileRow.balance_egp ?? 0);
+      }
+
+      const { data: homeJobsData } = await supabase
+        .from('jobs')
+        .select('id, creator_id, worker_id, task_type, amount, location_lat, location_lng, status, description, created_at, worker_before_photos, worker_after_photos, started_at, is_disputed')
+        .eq('creator_id', userId)
+        .eq('task_type', 'home')
+        .order('created_at', { ascending: false });
+      setMyHomeJobs((homeJobsData || []) as Job[]);
+
+      const { data: cityJobsData } = await supabase
+        .from('jobs')
+        .select('id, creator_id, worker_id, task_type, amount, location_lat, location_lng, status, description, created_at, worker_before_photos, worker_after_photos, started_at, is_disputed')
+        .eq('creator_id', userId)
+        .eq('task_type', 'city')
+        .order('created_at', { ascending: false });
+      setMyCityJobs((cityJobsData || []) as Job[]);
+
+      const { data: activeJobsData } = await supabase
+        .from('jobs')
+        .select('id, creator_id, worker_id, task_type, amount, location_lat, location_lng, status, description, created_at, worker_before_photos, worker_after_photos, started_at, is_disputed')
+        .eq('worker_id', userId)
+        .in('status', ['in_progress', 'completed', 'finished'])
+        .order('created_at', { ascending: false });
+      setMyActiveJobs((activeJobsData || []) as Job[]);
+
+      const pendingJobIds = [
+        ...(((homeJobsData || []) as Job[]).filter((j) => j.status === 'pending').map((j) => j.id)),
+        ...(((cityJobsData || []) as Job[]).filter((j) => j.status === 'pending').map((j) => j.id)),
+      ];
+      if (pendingJobIds.length > 0) {
+        const { data: bidsData } = await supabase
+          .from('bids')
+          .select('id, job_id, worker_id, bid_amount, status, created_at')
+          .in('job_id', pendingJobIds);
+        const byJob: Record<string, Bid[]> = {};
+        for (const bid of (bidsData || []) as Bid[]) {
+          if (!byJob[bid.job_id]) byJob[bid.job_id] = [];
+          byJob[bid.job_id].push(bid);
+        }
+        setJobBidsById(byJob);
+      } else {
+        setJobBidsById({});
+      }
+    } catch (err) {
+      console.error('Error fetching profile data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMarketplaceJobs = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+      setMarketplaceLoading(true);
+      setMarketplaceError(null);
+
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('id, creator_id, worker_id, task_type, amount, location_lat, location_lng, status, description, created_at, worker_before_photos, worker_after_photos, started_at, is_disputed')
+        .eq('status', 'pending')
+        .is('worker_id', null)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        throw error;
+      }
+
+      const list = (data || []).filter((j: Job) => j.creator_id !== session.user.id);
+      setMarketplaceJobs(list as Job[]);
+    } catch (err) {
+      console.error('Error fetching marketplace jobs:', err);
+      setMarketplaceError('Failed to load marketplace. Please refresh.');
+    } finally {
+      setMarketplaceLoading(false);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOrderError(null);
+    setOrderSuccess(null);
+
+    const amount = parseFloat(orderAmount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      setOrderError('Please enter any positive USD amount.');
+      return;
+    }
+
+    try {
+      setOrderSubmitting(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        setOrderError('You must be signed in to create a task.');
+        return;
+      }
+
+      const creatorId = session.user.id;
+
+      const res = await fetch('/api/paymob-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'job_creation',
+          userId: creatorId,
+          amount,
+          taskType,
+          location_lat: 27.2579,
+          location_lng: 33.8116,
+          description: orderDescription || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Payment init failed (${res.status})`);
+      }
+
+      const data = (await res.json()) as {
+        paymentUrl?: string;
+        paymentToken?: string;
+      };
+
+      if (data.paymentUrl) {
+        sessionStorage.setItem('paymentReturnType', 'job_creation');
+        window.location.assign(data.paymentUrl);
+        return;
+      }
+
+      if (data.paymentToken) {
+        sessionStorage.setItem('paymentReturnType', 'job_creation');
+        const iframeId =
+          (import.meta.env.VITE_PAYMOB_IFRAME_ID as string | undefined) || '1007120';
+        const url = `https://accept.paymob.com/api/acceptance/iframes/${iframeId}?payment_token=${data.paymentToken}`;
+        window.location.assign(url);
+        return;
+      }
+
+      throw new Error('No payment URL or token received.');
+    } catch (err) {
+      console.error('Create task exception:', err);
+      setOrderError(
+        err instanceof Error ? err.message : 'Something went wrong. Please try again.'
+      );
+    } finally {
+      setOrderSubmitting(false);
+    }
+  };
+
+  const handleAcceptBid = async (job: Job, bid: Bid) => {
+    if (!window.confirm(`Accept bid of $${bid.bid_amount} from this worker?`)) return;
+    try {
+      const { error: jobErr } = await supabase
+        .from('jobs')
+        .update({
+          worker_id: bid.worker_id,
+          amount: bid.bid_amount,
+          status: 'in_progress',
+        })
+        .eq('id', job.id);
+      if (jobErr) throw jobErr;
+
+      await supabase.from('bids').update({ status: 'accepted' }).eq('id', bid.id);
+
+      const { data: otherBids } = await supabase
+        .from('bids')
+        .select('id')
+        .eq('job_id', job.id)
+        .neq('id', bid.id)
+        .eq('status', 'pending');
+      if (otherBids && otherBids.length > 0) {
+        await supabase
+          .from('bids')
+          .update({ status: 'rejected' })
+          .eq('job_id', job.id)
+          .neq('id', bid.id);
+      }
+
+      await fetchProfileData();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to accept bid. Please try again.');
+    }
+  };
+
+  const handleDeleteJob = async (jobId: string) => {
+    if (!window.confirm('Delete this request? This action cannot be undone.')) return;
+    try {
+      const { error } = await supabase.from('jobs').delete().eq('id', jobId);
+      if (error) throw error;
+      setMyHomeJobs((prev) => prev.filter((j) => j.id !== jobId));
+      setJobBidsById((prev) => {
+        const next = { ...prev };
+        delete next[jobId];
+        return next;
+      });
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete. Please try again.');
+    }
+  };
+
+  const openNavigate = (job: Job) => {
+    const lat = job.location_lat;
+    const lng = job.location_lng;
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      alert('This job does not have coordinates yet.');
+      return;
+    }
+    const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const openProofModal = (job: Job, phase: 'before' | 'after') => {
+    setProofJob(job);
+    setProofPhase(phase);
+    setProofFiles([]);
+    setProofError(null);
+    setProofSuccess(null);
+  };
+
+  const closeProofModal = () => {
+    if (proofSubmitting) return;
+    setProofJob(null);
+    setProofFiles([]);
+    setProofError(null);
+    setProofSuccess(null);
+  };
+
+  const submitProof = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProofError(null);
+    setProofSuccess(null);
+    if (!proofJob) return;
+    if (!proofFiles.length) {
+      setProofError("Please upload photos before continuing.");
+      return;
+    }
+
+    try {
+      setProofSubmitting(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) throw new Error('You must be signed in.');
+
+      const uploadedUrls: string[] = [];
+      for (const file of proofFiles) {
+        const ext = file.name.split('.').pop() || 'jpg';
+        const fileName = `job_${proofJob.id}_${proofPhase}_${session.user.id}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from('order-photos')
+          .upload(fileName, file, { upsert: false });
+        if (uploadError) throw uploadError;
+        const { data: { publicUrl } } = supabase.storage.from('order-photos').getPublicUrl(fileName);
+        uploadedUrls.push(publicUrl);
+      }
+
+      if (proofPhase === 'before') {
+        const { error: updateErr } = await supabase
+          .from('jobs')
+          .update({
+            worker_before_photos: uploadedUrls,
+            started_at: new Date().toISOString(),
+          })
+          .eq('id', proofJob.id);
+        if (updateErr) throw updateErr;
+        setProofSuccess('Before photos uploaded. Mission started.');
+      } else {
+        const { error: updateErr } = await supabase
+          .from('jobs')
+          .update({
+            worker_after_photos: uploadedUrls,
+            status: 'completed',
+          })
+          .eq('id', proofJob.id);
+        if (updateErr) throw updateErr;
+        setProofSuccess('80% Proof complete. For 100% Proof & fast payout, send video proof to Telegram Team Checker.');
+      }
+
+      await fetchProfileData();
+      await fetchMarketplaceJobs();
+
+      setTimeout(() => closeProofModal(), 2500);
+    } catch (err: any) {
+      console.error('Proof upload error:', err);
+      setProofError(err?.message || 'Failed to upload photos. Please try again.');
+    } finally {
+      setProofSubmitting(false);
+    }
+  };
+
+  const handleConfirmReleasePay = async (job: Job) => {
+    if (!job.worker_id) {
+      alert('No worker assigned to this job yet.');
+      return;
+    }
+    if (!window.confirm('Confirm completion and release payment to the worker?')) return;
+    try {
+      const exchangeRate = 50;
+      const payoutEgp = Math.round((job.amount || 0) * exchangeRate);
+
+      const { data: workerProfile, error: workerErr } = await supabase
+        .from('profiles')
+        .select('id, balance_egp')
+        .eq('id', job.worker_id)
+        .maybeSingle();
+      if (workerErr) throw workerErr;
+
+      const currentBalance = (workerProfile?.balance_egp ?? 0) as number;
+      const { error: balanceErr } = await supabase
+        .from('profiles')
+        .update({ balance_egp: currentBalance + payoutEgp })
+        .eq('id', job.worker_id);
+      if (balanceErr) throw balanceErr;
+
+      const { error: jobErr } = await supabase
+        .from('jobs')
+        .update({ status: 'finished' })
+        .eq('id', job.id);
+      if (jobErr) throw jobErr;
+
+      await fetchProfileData();
+      alert('Payment released.');
+    } catch (err: any) {
+      console.error('Release pay error:', err);
+      alert(err?.message || 'Failed to release payment.');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex justify-end"
+      aria-modal="true"
+      role="dialog"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      {/* Sliding drawer — Gemini-style animated border on outer edge */}
+      <div
+        className="relative w-full max-w-lg h-full flex flex-col animate-slide-in-right animated-border animated-border-drawer overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="animated-border-inner w-full h-full flex flex-col overflow-hidden bg-gradient-to-b from-slate-950 via-[#020617] to-slate-950">
+          {/* Header — fixed at top, never scrolls */}
+          <div className="flex-shrink-0 sticky top-0 z-20 flex items-center justify-between px-5 py-4 pb-4 bg-[#020617]/95 backdrop-blur border-b border-gray-800">
+            <h1 className="text-lg font-bold text-white">Your Account</h1>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          {/* Scrollable content — job cards and forms */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4 pb-24">
+          <div className="w-full max-w-md mx-auto flex flex-col gap-6">
+        {/* HEADER: Welcome + Wallet */}
+        <header className="mb-8 text-white">
+          <p className="text-sm text-slate-400 uppercase tracking-[0.2em]">
+            Welcome {userProfile?.full_name || userEmail || 'Co-worker'}!
+          </p>
+          {userEmail && (
+            <p className="mt-1 text-[10px] text-slate-500 uppercase tracking-[0.18em]">
+              {userEmail}
+            </p>
+          )}
+
+          {/* Wallet — glass panel */}
+          <div className="mt-6 rounded-3xl bg-black/60 backdrop-blur-xl border border-white/10 p-5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-1">
+              Wallet
+            </p>
+            <p className="text-3xl font-black text-white">
+              {balance}{' '}
+              <span className="text-sm font-medium text-slate-400">EGP</span>
+            </p>
+          </div>
+
+          {/* LOGOUT — highly visible */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-4 w-full py-3 rounded-full font-black text-sm uppercase tracking-[0.2em] bg-red-500/20 border border-red-500/50 text-red-400 hover:bg-red-500/30 hover:text-red-300 hover:border-red-400/60 transition-all"
+          >
+            Logout
+          </button>
+
+          <div className="mt-6 mb-4 flex items-center justify-between gap-3">
+            <div className="inline-flex gap-2 rounded-full bg-slate-900/80 border border-white/5 p-1">
+              <button
+                type="button"
+                onClick={() => setTaskType('city')}
+                className={`px-4 py-2 rounded-full text-xs font-bold tracking-[0.18em] uppercase transition-all ${
+                  taskType === 'city'
+                    ? 'bg-[#22c55e] text-black'
+                    : 'bg-transparent text-slate-400 hover:text-[#22c55e]'
+                }`}
+              >
+                City Cleaning
+              </button>
+              <button
+                type="button"
+                onClick={() => setTaskType('home')}
+                className={`px-4 py-2 rounded-full text-xs font-bold tracking-[0.18em] uppercase transition-all ${
+                  taskType === 'home'
+                    ? 'bg-[#f59e0b] text-black'
+                    : 'bg-transparent text-slate-400 hover:text-[#f59e0b]'
+                }`}
+              >
+                Home Cleaning
+              </button>
+            </div>
+            <div className="animated-border rounded-full">
+              <button
+                type="button"
+                onClick={onClose}
+                className="animated-border-inner px-4 py-2.5 rounded-full text-[11px] text-white bg-[#020617] hover:brightness-110 transition-all flex items-center gap-2 font-bold uppercase tracking-[0.16em]"
+              >
+                <span>🗺️</span>
+                <span>Close & Back to Map</span>
+              </button>
+            </div>
+          </div>
+
+          <form
+            onSubmit={handleCreateTask}
+            className="mb-10 rounded-3xl bg-black/60 backdrop-blur-xl border border-white/10 p-5 space-y-4"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  Task type
+                </label>
+                <p className="text-sm text-slate-200 font-medium">
+                  {taskType === 'city' ? 'City Cleaning Donation' : 'Home Cleaning Service'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  Amount (USD)
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={orderAmount}
+                  onChange={(e) => setOrderAmount(e.target.value)}
+                  placeholder="Any amount"
+                  className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  Location
+                </label>
+                <div className="flex items-center gap-2 rounded-2xl bg-black/40 border border-white/10 px-3 py-2.5">
+                  <span className="text-slate-400 text-sm">📍</span>
+                  <input
+                    type="text"
+                    value={orderLocation}
+                    onChange={(e) => setOrderLocation(e.target.value)}
+                    placeholder="City / Area (map pin coming next)"
+                    className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-slate-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  Upload photo
+                </label>
+                <label className="flex h-[52px] items-center justify-center rounded-2xl border border-dashed border-slate-600 bg-black/30 text-[11px] text-slate-400 cursor-pointer hover:border-teal-400 hover:text-teal-300 transition-all">
+                  {orderPhoto ? 'Photo selected' : 'Tap to add reference photo'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setOrderPhoto(file);
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                Short description & area
+              </label>
+              <textarea
+                value={orderDescription}
+                onChange={(e) => setOrderDescription(e.target.value)}
+                rows={3}
+                placeholder={
+                  taskType === 'city'
+                    ? 'Describe the city spot you want to clean up...'
+                    : 'Describe your home cleaning task and area size...'
+                }
+                className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500 resize-none"
+              />
+            </div>
+
+            {orderError && (
+              <p className="text-xs text-red-400 font-medium">{orderError}</p>
+            )}
+            {orderSuccess && (
+              <p className="text-xs text-emerald-400 font-medium">{orderSuccess}</p>
+            )}
+
+            <div className={`w-full mt-1 rounded-full ${taskType === 'city' ? 'animated-border-city' : 'animated-border-home'} ${orderSubmitting ? 'opacity-60' : ''}`}>
+              <button
+                type="submit"
+                disabled={orderSubmitting}
+                className="animated-border-inner w-full rounded-full px-6 py-3 text-sm font-black uppercase tracking-[0.24em] transition-all text-white bg-[#020617] hover:brightness-110 disabled:cursor-wait active:scale-[0.98]"
+              >
+                {orderSubmitting ? 'Processing...' : 'Submit Task & Pay'}
+              </button>
+            </div>
+          </form>
+        </header>
+
+        {/* MY HOME REQUESTS (from jobs table, excluding finished) */}
+        <section className="mb-10 text-white">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 uppercase tracking-[0.2em] text-slate-300">
+            🏠 My Home Requests
+          </h2>
+          <div className="space-y-4">
+            {loading ? (
+              <div className="space-y-4">
+                {[1, 2].map((s) => (
+                  <div
+                    key={s}
+                    className="bg-slate-900/60 rounded-xl border border-white/5 p-4 animate-pulse"
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <div className="h-4 w-16 bg-slate-700 rounded-full" />
+                      <div className="h-3 w-20 bg-slate-700 rounded-full" />
+                    </div>
+                    <div className="h-3 w-32 bg-slate-700 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            ) : (myHomeJobs || []).filter((job) => job.status !== 'finished').length === 0 ? (
+              <p className="text-slate-500 text-sm italic">You haven&apos;t created any home requests yet.</p>
+            ) : (
+              (myHomeJobs || [])
+                .filter((job) => job.status !== 'finished')
+                .map((job) => {
+                const bids = (jobBidsById[job.id] || []).filter((b) => b.status === 'pending');
+                return (
+                  <div key={job.id} className="bg-slate-900/60 rounded-xl border border-white/5 p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">#{shortId(job.id)}</span>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider">{new Date(job.created_at).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between items-start mb-3">
+                      <span className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
+                        job.status === 'in_progress' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+                        job.status === 'completed' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                        job.status === 'finished' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+                        job.status === 'disputed' ? 'bg-red-500/20 text-red-400 border border-red-500/40' :
+                        'bg-white/10 text-slate-400 border border-white/10'
+                      }`}>
+                        {job.status}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {job.status === 'pending' && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteJob(job.id)}
+                            className="text-[10px] font-bold text-red-400 hover:text-red-300 uppercase tracking-wider"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-slate-300 mb-1">
+                      <span className="text-amber-400 font-bold">${job.amount}</span>
+                      {job.description && (
+                        <span className="ml-2 text-slate-400">— {job.description}</span>
+                      )}
+                    </p>
+
+                    {job.status === 'disputed' && (
+                      <div className="mt-4 p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
+                        <p className="text-red-300 text-sm font-medium mb-2">Mission in dispute. Contact support:</p>
+                        <a href={SUPPORT_TELEGRAM} target="_blank" rel="noopener noreferrer" className="text-emerald-400 font-bold underline hover:text-emerald-300">
+                          @CleanEgypt_Admin_Bot
+                        </a>
+                      </div>
+                    )}
+
+                    {job.status === 'pending' && bids.length > 0 && (
+                      <div className="mt-4 p-4 rounded-2xl bg-black/40 border border-white/10">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-3">
+                          Bids
+                        </p>
+                        <div className="space-y-2">
+                          {bids.map((bid) => (
+                            <div
+                              key={bid.id}
+                              className="flex items-center justify-between gap-3 py-2 px-3 rounded-xl bg-black/40 border border-white/5"
+                            >
+                              <span className="text-sm font-black text-amber-400">${bid.bid_amount}</span>
+                              <div className="rounded-full animated-border-home">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAcceptBid(job, bid)}
+                                  className="animated-border-inner w-full rounded-full px-4 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-white bg-[#020617] hover:brightness-110 transition-all active:scale-[0.98]"
+                                >
+                                  Accept bid
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {job.status === 'pending' && bids.length === 0 && (
+                      <p className="text-slate-500 text-xs italic mt-2">No bids yet. Workers can bid from the map.</p>
+                    )}
+
+                    {/* Client actions */}
+                    {job.status === 'completed' && job.worker_id && (
+                      <div className="mt-4">
+                        <button
+                          type="button"
+                          onClick={() => setReviewJob(job)}
+                          className="w-full py-3 rounded-full bg-emerald-500 text-black font-black text-xs uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(52,211,153,0.5)] hover:brightness-110 transition-all active:scale-95"
+                        >
+                          Review & Release Pay
+                        </button>
+                        <p className="mt-2 text-[10px] text-slate-500 uppercase tracking-wider text-center">
+                          Worker submitted completion photos. Review before confirming or disputing.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        {/* MY ACTIVE MISSIONS (from jobs where worker_id = me, excluding finished) */}
+        <section className="mb-10 text-white">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 uppercase tracking-[0.2em] text-amber-400/90">
+            🎯 My Active Missions
+          </h2>
+          {(myActiveJobs || []).filter((job) => job.status !== 'finished').length === 0 ? (
+            <p className="text-slate-500 text-sm italic">You haven&apos;t taken any missions yet. Pick one from the marketplace and pay the deposit.</p>
+          ) : (
+            <div className="space-y-4">
+              {(myActiveJobs || [])
+                .filter((job) => job.status !== 'finished')
+                .map((job) => {
+                const isHome = job.task_type === 'home';
+                const icon = isHome ? '🏠' : '🌆';
+                const badgeColor = isHome ? 'bg-amber-400/10 text-amber-300 border-amber-500/30' : 'bg-emerald-400/10 text-emerald-300 border-emerald-500/30';
+                const statusPill =
+                  job.status === 'in_progress'
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    : job.status === 'completed'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      : 'bg-white/10 text-slate-400 border border-white/10';
+                return (
+                  <div
+                    key={job.id}
+                    className="bg-slate-900/60 rounded-xl border border-white/5 p-4"
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] text-slate-500/80 font-mono">#{shortId(job.id)}</span>
+                      <span className="text-[10px] text-slate-500">{new Date(job.created_at).toLocaleDateString()}</span>
+                    </div>
+                    <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider mb-3 ${statusPill}`}>
+                      {job.status === 'in_progress' ? '🟢 In Progress' : job.status === 'completed' ? '🟠 Completed' : job.status.toUpperCase()}
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{icon}</span>
+                        <div>
+                          <p className={`text-[10px] uppercase font-black tracking-widest px-2 py-0.5 rounded-full border ${badgeColor}`}>
+                            {job.task_type.toUpperCase()} Mission
+                          </p>
+                          <p className={`text-xl font-black mt-1 ${isHome ? 'text-amber-400' : 'text-emerald-400'}`}>${job.amount}</p>
+                        </div>
+                      </div>
+                      {job.started_at && (
+                        <div className="text-right">
+                          <p className="text-[9px] text-slate-500 uppercase tracking-widest">Time Elapsed</p>
+                          <JobTimer startedAt={job.started_at} />
+                        </div>
+                      )}
+                    </div>
+                    {job.description && (
+                      <p className="text-xs text-slate-400 mt-2">{job.description}</p>
+                    )}
+
+                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openNavigate(job)}
+                        className="w-full py-3 rounded-full border border-emerald-500/50 text-emerald-300 hover:text-emerald-200 hover:border-emerald-400/70 bg-black/40 backdrop-blur-md text-[11px] font-black uppercase tracking-[0.2em] transition-all active:scale-95"
+                      >
+                        Navigate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openProofModal(job, job.started_at ? 'after' : 'before')}
+                        disabled={job.status !== 'in_progress'}
+                        className={`w-full py-3 rounded-full text-[11px] font-black uppercase tracking-[0.2em] transition-all active:scale-95 ${
+                          job.status === 'in_progress'
+                            ? 'bg-gradient-to-r from-amber-300 to-amber-500 text-black shadow-[0_0_24px_rgba(251,191,36,0.6)] hover:brightness-110'
+                            : 'bg-white/5 text-slate-500 cursor-not-allowed'
+                        }`}
+                      >
+                        {job.started_at ? "Upload 'After' photos & Finish" : "Upload 'Before' photos & Start"}
+                      </button>
+                    </div>
+
+                    {job.status === 'completed' && (
+                      <p className="mt-3 text-[10px] text-amber-300 uppercase tracking-wider">
+                        Waiting for client to confirm & release payment
+                      </p>
+                    )}
+                    {job.status === 'finished' && (
+                      <p className="mt-3 text-[10px] text-emerald-300 uppercase tracking-wider">
+                        Payment released
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* MY CITY DONATIONS (from jobs table, excluding finished) */}
+        <section className="mb-10 text-white">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 uppercase tracking-[0.2em] text-slate-300">
+            🏙️ My City Donations
+          </h2>
+          <div className="space-y-4">
+            {loading ? (
+              <p className="text-slate-500 text-sm italic">Loading city donations...</p>
+            ) : (myCityJobs || []).filter((job) => job.status !== 'finished').length === 0 ? (
+              <p className="text-slate-500 text-sm italic">You have no city donations yet.</p>
+            ) : (
+              (myCityJobs || [])
+                .filter((job) => job.status !== 'finished')
+                .map((job) => (
+                <div key={job.id} className="bg-slate-900/60 rounded-xl border border-white/5 p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] text-slate-500/80 font-mono">#{shortId(job.id)}</span>
+                    <span className="text-[10px] text-slate-500">{new Date(job.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-400 font-bold mb-1">
+                    City Donation
+                  </p>
+                  <p className="text-sm font-bold text-emerald-400 mb-1">${job.amount}</p>
+                  <p className="text-xs text-slate-400">
+                    Your donation on the map. Workers can pick it up in the marketplace.
+                  </p>
+
+                  {(() => {
+                    const bids = (jobBidsById[job.id] || []).filter((b) => b.status === 'pending');
+                    if (job.status !== 'pending') return null;
+                    return (
+                      <div className="mt-3">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-2">
+                          Active bids: <span className="text-emerald-400">{bids.length}</span>
+                        </p>
+                        {bids.length > 0 ? (
+                          <div className="space-y-2">
+                            {bids.map((bid) => (
+                              <div
+                                key={bid.id}
+                                className="flex items-center justify-between gap-3 py-2 px-3 rounded-xl bg-black/40 border border-white/5"
+                              >
+                                <span className="text-sm font-black text-emerald-400">${bid.bid_amount}</span>
+                                <div className="rounded-full animated-border-city">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAcceptBid(job, bid)}
+                                    className="animated-border-inner w-full rounded-full px-4 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-white bg-[#020617] hover:brightness-110 transition-all active:scale-[0.98]"
+                                  >
+                                    Accept bid
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-slate-500 text-xs italic">No bids yet.</p>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {job.status === 'completed' && job.worker_id && (
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={() => setReviewJob(job)}
+                        className="w-full py-3 rounded-full bg-emerald-500 text-black font-black text-xs uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(52,211,153,0.5)] hover:brightness-110 transition-all active:scale-95"
+                      >
+                        Review & Release Pay
+                      </button>
+                      <p className="mt-2 text-[10px] text-slate-500 uppercase tracking-wider text-center">
+                        Worker marked job completed. Review before confirming or disputing.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        {/* GLOBAL MARKETPLACE */}
+        <section className="mb-10 text-white pointer-events-auto relative z-10">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 uppercase tracking-[0.2em] text-emerald-400/90">
+            🌍 Global Marketplace
+          </h2>
+          {paymentSyncing && (
+            <p className="text-[11px] font-bold text-emerald-400 mb-3 animate-pulse">
+              🔄 Verifying your payment...
+            </p>
+          )}
+
+          {marketLoading && (
+            <div className="grid grid-cols-1 gap-4 mb-2">
+              {[1, 2, 3].map((skeleton) => (
+                <div
+                  key={skeleton}
+                  className="bg-slate-900/60 rounded-xl border border-white/5 p-4 animate-pulse"
+                >
+                  <div className="h-3 w-24 bg-slate-700 rounded-full mb-3" />
+                  <div className="h-6 w-32 bg-slate-600 rounded-full mb-4" />
+                  <div className="h-3 w-20 bg-slate-700 rounded-full ml-auto" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {marketError && !marketLoading && (
+            <p className="text-sm text-red-400 mb-4">{marketError}</p>
+          )}
+
+          {!marketLoading && !marketError && (marketplaceJobs || []).filter((job) => job.status === 'pending').length === 0 && (
+            <p className="text-sm text-slate-500 italic">
+              No active missions yet. Check back soon.
+            </p>
+          )}
+
+          {!marketLoading && !marketError && (marketplaceJobs || []).filter((job) => job.status === 'pending').length > 0 && (
+            <div className="grid grid-cols-1 gap-4 pointer-events-auto">
+              {(marketplaceJobs || [])
+                .filter((job) => job.status === 'pending' && job.worker_id == null)
+                .map((job) => {
+                const isHome = job.task_type === 'home';
+                const icon = isHome ? '🏠' : '🌆';
+                const badgeColor = isHome
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+
+                return (
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => {
+                      if (onNavigateToJob && typeof job.location_lat === 'number' && typeof job.location_lng === 'number') {
+                        onNavigateToJob(job.location_lat, job.location_lng);
+                      }
+                      onClose();
+                    }}
+                    className="group w-full text-left cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all relative z-10"
+                  >
+                    <div className={`relative z-10 bg-slate-900/60 rounded-xl border border-white/5 p-4 overflow-hidden transition-all duration-200 ${isHome ? 'group-hover:border-amber-500/50' : 'group-hover:border-emerald-500/50'}`}>
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-[10px] text-slate-500/80 font-mono">#{shortId(job.id)}</span>
+                        <span className="text-[10px] text-slate-500">{new Date(job.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none" aria-hidden>
+                        <div className={`absolute -inset-32 ${isHome ? 'bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_60%)]' : 'bg-[radial-gradient(circle_at_top,_rgba(52,211,153,0.12),_transparent_60%)]'}`} />
+                      </div>
+
+                      <div className="relative z-10 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-black/40 border border-white/10 text-xl group-hover:scale-105 transition-transform duration-200">
+                            <span>{icon}</span>
+                          </div>
+                          <div>
+                            <p className={`text-[10px] uppercase font-black tracking-widest px-2 py-0.5 rounded-full border ${badgeColor}`}>
+                              {job.task_type.toUpperCase()} Mission
+                            </p>
+                            <p className={`text-2xl font-black tracking-tight mt-1 ${isHome ? 'text-amber-400' : 'text-emerald-400'}`}>${job.amount}</p>
+                          </div>
+                        </div>
+                        <div className="relative z-10 text-right">
+                          <p className="text-[9px] text-slate-500 mb-1 uppercase tracking-widest">View on Map</p>
+                          <p className={`text-xs font-bold ${isHome ? 'text-amber-400 group-hover:text-amber-300' : 'text-emerald-400 group-hover:text-emerald-300'}`}>→</p>
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* CLEANING HISTORY (finished jobs for creator or cleaner) */}
+        {userProfile && (
+          <section className="mb-10 text-white">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2 uppercase tracking-[0.2em] text-slate-400">
+              📜 My Cleaning History
+            </h2>
+            <div className="space-y-4">
+              {(() => {
+                const uid = userProfile.id;
+                const finishedJobs: Job[] = [
+                  ...(myHomeJobs || []),
+                  ...(myCityJobs || []),
+                  ...(myActiveJobs || []),
+                ].filter(
+                  (job, idx, arr) =>
+                    job.status === 'finished' &&
+                    (job.creator_id === uid || job.worker_id === uid) &&
+                    arr.findIndex((j) => j.id === job.id) === idx
+                );
+
+                if (finishedJobs.length === 0) {
+                  return (
+                    <p className="text-slate-500 text-sm italic">
+                      No finished jobs yet. Completed missions will appear here.
+                    </p>
+                  );
+                }
+
+                return finishedJobs.map((job) => {
+                  const isCreator = job.creator_id === uid;
+                  const roleLabel = isCreator ? 'Creator' : 'Cleaner';
+                  const isHome = job.task_type === 'home';
+                  const icon = isHome ? '🏠' : '🌆';
+                  const createdDate = new Date(job.created_at).toLocaleDateString();
+                  return (
+                    <div
+                      key={job.id}
+                      className="bg-slate-900/60 rounded-xl border border-white/5 p-4 opacity-90"
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] text-slate-600 font-mono">
+                          #{shortId(job.id)}
+                        </span>
+                        <span className="text-[10px] text-slate-600">
+                          {createdDate}
+                        </span>
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-700/40 text-slate-200 text-[10px] font-bold uppercase tracking-wider mb-3 border border-slate-500/60">
+                        Finished
+                      </div>
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl opacity-90">{icon}</span>
+                          <div>
+                            <p className={`text-[10px] uppercase font-black tracking-widest px-2 py-0.5 rounded-full border ${isHome ? 'border-amber-500/30 text-amber-300' : 'border-emerald-500/30 text-emerald-400'}`}>
+                              {job.task_type.toUpperCase()} Mission
+                            </p>
+                            <p className={`text-xl font-black mt-1 ${isHome ? 'text-amber-400' : 'text-emerald-400'}`}>
+                              ${job.amount}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[9px] text-slate-500 uppercase tracking-widest">
+                            Role
+                          </p>
+                          <p className="text-xs font-bold text-slate-200">
+                            {roleLabel}
+                          </p>
+                        </div>
+                      </div>
+                      {job.description && (
+                        <p className="text-xs text-slate-400 mt-1">{job.description}</p>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </section>
+        )}
+
+          </div>
+        </div>
+        </div>
+      </div>
+
+      {/* Verification required modal */}
+      {showVerificationPrompt && (
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4"
+          onClick={() => setShowVerificationPrompt(false)}
+        >
+          <div
+            className="relative z-[9999] w-full max-w-md rounded-3xl bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-white font-bold text-lg mb-2">Verification Required</p>
+            <p className="text-slate-400 text-sm mb-6">
+              {userProfile?.verification_status === 'pending'
+                ? 'Your documents are under review. Check your profile for status updates.'
+                : 'Only verified workers (with ID verification) can take home missions.'}
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowVerificationPrompt(false)}
+                className="flex-1 py-3 rounded-full border border-white/20 text-slate-400 hover:text-white font-bold text-sm transition-colors"
+              >
+                Close
+              </button>
+              {userProfile?.verification_status !== 'pending' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowVerificationPrompt(false);
+                    navigate('/verify');
+                  }}
+                  className="flex-1 py-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm shadow-[0_0_20px_rgba(52,211,153,0.5)] transition-colors"
+                >
+                  Verify Now
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="flex-1 py-3 rounded-full bg-white/10 text-slate-500 font-black text-sm cursor-not-allowed"
+                >
+                  Documents Pending
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Client review modal: compare before/after & confirm or dispute */}
+      {reviewJob && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={() => setReviewJob(null)}
+        >
+          <div
+            className="w-full max-w-3xl max-h-[85vh] flex flex-col rounded-3xl bg-black/90 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header — fixed at top */}
+            <div className="flex-shrink-0 flex justify-between items-start p-6 pb-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold mb-1">
+                  Review proof of work
+                </p>
+                <h3 className="text-xl font-black text-white">
+                  {reviewJob.task_type.toUpperCase()} • ${reviewJob.amount}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewJob(null)}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scrollable photo grid + disclaimer */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="rounded-2xl bg-black/50 border border-white/10 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-3">
+                    Before photos
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(reviewJob.worker_before_photos || []).length === 0 && (
+                      <p className="text-xs text-slate-500 italic">
+                        Worker did not upload before photos.
+                      </p>
+                    )}
+                    {(reviewJob.worker_before_photos || []).map((url) => (
+                      <div key={url} className="relative overflow-hidden rounded-xl border border-white/10 bg-black/40">
+                        <img src={url} alt="Before" className="w-full h-24 object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-black/50 border border-white/10 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-3">
+                    After photos
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(reviewJob.worker_after_photos || []).length === 0 && (
+                      <p className="text-xs text-slate-500 italic">
+                        Worker did not upload after photos.
+                      </p>
+                    )}
+                    {(reviewJob.worker_after_photos || []).map((url) => (
+                      <div key={url} className="relative overflow-hidden rounded-xl border border-white/10 bg-black/40">
+                        <img src={url} alt="After" className="w-full h-24 object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                80% Proof is based on photos. For 100% Proof & dispute resolution, our Telegram Team Checker may request video proof.
+              </p>
+            </div>
+
+            {/* Sticky action buttons — always visible at bottom */}
+            <div className="flex-shrink-0 sticky bottom-0 bg-black/90 backdrop-blur-md pt-4 pb-6 px-6 z-10 border-t border-gray-800">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className={`flex-1 rounded-full ${reviewJob?.task_type === 'home' ? 'animated-border-home' : 'animated-border-city'}`}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await handleConfirmReleasePay(reviewJob);
+                      setReviewJob(null);
+                    }}
+                    className="animated-border-inner w-full rounded-full py-3 text-white bg-[#020617] font-black text-sm uppercase tracking-[0.2em] hover:brightness-110 transition-all active:scale-[0.98]"
+                  >
+                    Confirm & Pay
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const { error } = await supabase
+                        .from('jobs')
+                        .update({ is_disputed: true, status: 'disputed' })
+                        .eq('id', reviewJob.id);
+                      if (error) throw error;
+                      await fetchProfileData();
+                      try {
+                        await fetch('/api/notify-dispute', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ jobId: reviewJob.id }),
+                        });
+                      } catch {
+                        // ignore
+                      }
+                      alert('Dispute opened. Support (Muhamed) will review photos and Telegram video.');
+                    } catch (err: any) {
+                      console.error('Dispute error:', err);
+                      alert(err?.message || 'Failed to open dispute.');
+                    } finally {
+                      setReviewJob(null);
+                    }
+                  }}
+                  className="flex-1 py-3 rounded-full bg-red-500/20 border border-red-500/60 text-red-300 hover:bg-red-500/30 hover:text-red-200 font-black text-sm uppercase tracking-[0.2em] transition-all active:scale-95"
+                >
+                  Open Dispute
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Worker PoW modal: before/after photos */}
+      {proofJob && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={closeProofModal}
+          aria-hidden="false"
+        >
+          <div
+            className="w-full max-w-md rounded-3xl bg-black/90 backdrop-blur-xl border border-white/10 shadow-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-black uppercase tracking-[0.18em] text-white">
+                {proofPhase === 'before' ? "Upload 'Before' photos & Start" : "Upload 'After' photos & Finish"}
+              </h3>
+              <button
+                type="button"
+                onClick={closeProofModal}
+                disabled={proofSubmitting}
+                className="text-slate-400 hover:text-white text-lg font-bold disabled:opacity-40 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-black/40 border border-white/10 px-4 py-3 mb-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-1">
+                Mission
+              </p>
+              <p className="text-white font-bold">
+                {proofJob.task_type.toUpperCase()} • ${proofJob.amount}
+              </p>
+              {proofJob.description && (
+                <p className="text-xs text-slate-400 mt-1">{proofJob.description}</p>
+              )}
+            </div>
+
+            <form onSubmit={submitProof} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  {proofPhase === 'before'
+                    ? "Upload 'Before' photos (required)"
+                    : "Upload 'After' photos (required)"}
+                </label>
+                <label className="flex h-[56px] items-center justify-center rounded-2xl border border-dashed border-amber-500/50 bg-amber-500/10 text-[11px] text-amber-200 cursor-pointer hover:border-amber-400 hover:bg-amber-500/15 transition-all">
+                  {proofFiles.length > 0 ? `${proofFiles.length} photo(s) selected` : 'Tap to upload photos'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []).slice(0, 10);
+                      setProofFiles(files);
+                      setProofError(null);
+                      setProofSuccess(null);
+                    }}
+                  />
+                </label>
+              </div>
+
+              {proofError && (
+                <p className="text-xs text-red-400 font-medium">{proofError}</p>
+              )}
+              {proofSuccess && (
+                <p className="text-xs text-emerald-400 font-medium">{proofSuccess}</p>
+              )}
+
+              <div className={`w-full rounded-full ${proofJob?.task_type === 'home' ? 'animated-border-home' : 'animated-border-city'} ${proofSubmitting ? 'opacity-60' : ''}`}>
+                <button
+                  type="submit"
+                  disabled={proofSubmitting}
+                  className="animated-border-inner w-full rounded-full px-6 py-3 text-sm font-black uppercase tracking-[0.24em] transition-all text-white bg-[#020617] hover:brightness-110 disabled:cursor-wait active:scale-[0.98]"
+                >
+                  {proofSubmitting
+                    ? 'Submitting...'
+                    : proofPhase === 'before'
+                      ? "Submit & start mission"
+                      : "Submit & mark completed"}
+                </button>
+              </div>
+
+              <p className="text-[10px] text-slate-500 text-center uppercase tracking-wider">
+                {proofPhase === 'before'
+                  ? 'After you submit, the mission timer will start.'
+                  : 'After you submit, the client must confirm to release payment.'}
+              </p>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Profile;

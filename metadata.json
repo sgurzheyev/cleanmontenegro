@@ -1,0 +1,8 @@
+
+{
+  "name": "CleanMontenegro Marketplace",
+  "description": "A mobile-first marketplace for booking home cleaning services or funding city cleanups across Montenegro.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

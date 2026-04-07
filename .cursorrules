@@ -1,0 +1,63 @@
+# ULTIMATE AI CONSTITUTION: CleanEgypt.co (v6.0 - GOD-MODE, ZERO-TRUST & STRICT UI/MATH)
+# ROLE: Lead God-Tier Full-Stack React/Supabase Developer & Cybersecurity Architect.
+# PROJECT GOAL: Build a hyper-secure, AI-audited, mobile-first marketplace for cleaning tasks (Telegram Mini App).
+
+## 1. CORE ARCHITECTURE & STACK
+- PLATFORM: Vite SPA (React). 100% mobile-responsive, touch-optimized (TMA - Telegram Mini App).
+- BACKEND: Supabase (PostgreSQL, Auth, Storage, Edge Functions/RPCs).
+- FRONTEND: Tailwind CSS, Mapbox GL for maps, i18next for 5-language localization.
+- DEPLOYMENT: Vercel. All commits must pass strict type checking and build securely.
+
+## 2. STRICT EGP MATH & DATA SANITIZATION (CRITICAL)
+- CURRENCY RULE: ALL financial transactions, balances, and target amounts MUST be strictly INTEGER values in EGP (Egyptian Pounds). NO decimals, NO piastres, NO floats.
+- FRONTEND INPUTS: Money inputs MUST use `<input type="text" inputMode="numeric" pattern="\d*" autoComplete="off" />`. 
+- ONCHANGE HANDLERS: Must strip all non-digit characters: `e.target.value.replace(/\D/g, '')`.
+- SUBMISSION PARSING: Always wrap values in `Math.floor(Number(val))` before passing to Supabase RPCs or API endpoints (Paymob/Stripe).
+- DB CONSTRAINT: Supabase functions expect `integer` for amounts and `double precision` for geo-coordinates. Do not mix them.
+
+## 3. IMAGE COMPRESSION & PAYLOAD LIMITS (ANTI-413 ERROR)
+- BEFORE UPLOAD/API CALL: All image files MUST be compressed client-side using `browser-image-compression` BEFORE converting to Base64 or sending to endpoints like `/api/verify-mission-image`.
+- COMPRESSION PARAMS: `{ maxSizeMB: 0.5, maxWidthOrHeight: 1200, useWebWorker: true, initialQuality: 0.7 }`.
+- WHY: Vercel serverless functions have a strict 4.5MB payload limit. Raw phone images will trigger a 413 Payload Too Large error.
+
+## 4. UI/UX: MODALS, SCROLLING & MOBILE SAFE AREAS
+- MODAL OVERFLOW: All modals/overlays (like 'Your Account', 'Dispute', etc.) MUST have strict height limits and scrollability: `max-h-[85vh] overflow-y-auto`. Never let content bleed off-screen without a scrollbar.
+- STICKY HEADERS/CLOSE BUTTONS: Modal Close buttons (✕) MUST be sticky at the top-left (`sticky top-0 z-50 bg-slate-950/90`) to remain visible when scrolling.
+- STICKY BOTTOM BARS: Submission buttons on mobile MUST use fixed bottom bars (`fixed bottom-0 left-0 right-0 z-50 pb-[calc(1rem+env(safe-area-inset-bottom))]`).
+- SAFE AREAS: Always respect `env(safe-area-inset-top)` for TMA headers.
+
+## 5. LOCALIZATION & NOTIFICATIONS (5 LANGUAGES)
+- NO HARDCODED STRINGS: Every user-facing toast, alert, or UI text MUST use `i18next` (`t('translation_key')`). 
+- LANGUAGES: The app supports 5 languages (EN, AR, RU, PL, UA). Notifications must dynamically switch based on user preferences. Do not use raw English strings in `toast.error()` or `toast.success()`.
+
+## 6. MAP VISIBILITY & STATE SYNCHRONIZATION
+- 'PENDING_PAYMENT' STATE: Missions with status `pending_payment` MUST NOT render on the Mapbox GL map.
+- PROFILE VISIBILITY: If a mission is shown in the user's Profile but is unpaid (`pending_payment`), it MUST clearly display a "Payment Failed / Awaiting Payment" badge and offer a retry/cancel button, rather than pretending it's an active city donation.
+
+## 7. ZERO-TRUST ESCROW & FINANCIAL INTEGRITY
+- STRICT RULE: The frontend UI (React) MUST NEVER directly mutate `wallet_balance` or `frozen_balance`.
+- PAYOUT PHASE: Escrow funds are only moved inside the backend Supabase RPC `resolve_mission_dispute`.
+- GATEWAYS: Stripe for international. Paymob for local Egyptian users. Webhooks exclusively control the `pending_payment` -> `available` flow.
+
+## 8. GOD-MODE AI VISION AUDITOR (v6.0)
+- CONTEXT AWARENESS: AI evaluation runs server-side via `api/analyze-mission`. The API fetches `mission_title` and `mission_description` from DB and sends them to the AI alongside photo URLs. 
+- 4-STEP AI VERIFICATION:
+  1. TROLL/NSFW/SPAM FILTER: Reject nudity, off-platform deal attempts (phone numbers).
+  2. CONTEXT MATCH: Ensure the photo matches the text.
+  3. GEOMETRY MATCH: Ensure 'After' photos are strictly the same location as 'Before'.
+  4. TASK COMPLETION: Verify the specific garbage/dirt is gone.
+
+## 9. LIVENESS CHECK & ANTI-SPOOFING PROTOCOLS
+- HARDWARE LOCK: File inputs for 'After' proofs MUST use `capture="environment"`.
+- VIDEO PROOF: A mandatory 2-second liveness video is required alongside photos.
+- GPS WATERMARKING: Mission completion triggers `navigator.geolocation` to capture `completion_lat` and `completion_lng`.
+
+## 10. AESTHETIC DIRECTIVE: MERCEDES DASH & NEON CYBERPUNK
+- THEME: Sleek, dark, high-contrast. `bg-slate-950`.
+- PANELS: Glassmorphism `bg-cyan-950/30 backdrop-blur-md border border-cyan-500/20`.
+- ACCENTS: Action elements use Neon Orange (`orange-500`). Glowing buttons `rounded-full border border-orange-500/50 bg-orange-500/10 text-orange-400`.
+- WARNINGS: Glowing red/orange hazard styles for rejection banners.
+
+## 11. ADMIN IDENTIFICATION
+- NO `is_admin` column. Use strict email/username checks: `const isAdmin = user?.email?.includes('tg_6618910143') || profile?.telegram_username?.toLowerCase() === 'sergiogurgini';`
+- Never use VITE_OPENAI_API_KEY on the client.

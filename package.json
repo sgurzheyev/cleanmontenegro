@@ -1,0 +1,39 @@
+{
+  "name": "cleanmontenegro-marketplace",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "^1.41.0",
+    "@stripe/react-stripe-js": "^5.6.1",
+    "@stripe/stripe-js": "^8.9.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "browser-image-compression": "^2.0.2",
+    "framer-motion": "^12.38.0",
+    "i18next": "^25.8.18",
+    "lucide-react": "^0.577.0",
+    "mapbox-gl": "^2.15.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-i18next": "^16.5.8",
+    "react-map-gl": "^7.0.25",
+    "react-router-dom": "^7.13.1",
+    "vite-plugin-node-polyfills": "^0.25.0",
+    "vite-plugin-resolve": "^2.5.2"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vercel/node": "^5.6.11",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.7.0",
+    "vite": "^6.0.0"
+  }
+}
