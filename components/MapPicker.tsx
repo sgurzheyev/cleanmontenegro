@@ -2399,6 +2399,45 @@ const MapPicker: React.FC<MapPickerProps> = ({
             }
           }
 
+          // Deep cyberpunk greenery wash (VERY low in hierarchy: above base, below heatmap/buildings/roads/markers).
+          // Inserted below everything by anchoring it under `place_label` early in the stack.
+          try {
+            if (!map.getLayer('greenery-landcover')) {
+              map.addLayer(
+                {
+                  id: 'greenery-landcover',
+                  type: 'fill',
+                  source: 'composite',
+                  'source-layer': 'landcover',
+                  filter: ['match', ['get', 'class'], ['wood', 'forest', 'park', 'grass', 'scrub'], true, false] as any,
+                  paint: {
+                    'fill-color': '#0f3822',
+                    'fill-opacity': 0.35,
+                  },
+                } as any,
+                'place_label'
+              );
+            }
+            if (!map.getLayer('greenery-landuse')) {
+              map.addLayer(
+                {
+                  id: 'greenery-landuse',
+                  type: 'fill',
+                  source: 'composite',
+                  'source-layer': 'landuse',
+                  filter: ['match', ['get', 'class'], ['park', 'grass', 'cemetery'], true, false] as any,
+                  paint: {
+                    'fill-color': '#0b2e1b',
+                    'fill-opacity': 0.3,
+                  },
+                } as any,
+                'place_label'
+              );
+            }
+          } catch {
+            /* non-fatal */
+          }
+
           try {
             console.log('Mapbox 3D models loading version 2.0...');
             map.addModel('mop-model', '/models/mop.glb');
