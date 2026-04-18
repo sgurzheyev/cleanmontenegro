@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import Map, { NavigationControl, GeolocateControl, MapRef, Source, Layer } from 'react-map-gl';
-import type { GeoJSONSource, MapMouseEvent, PointLike } from 'mapbox-gl';
+import Map, { NavigationControl, GeolocateControl, MapRef, Source, Layer, Popup } from 'react-map-gl';
+import type { MapMouseEvent, PointLike } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import imageCompression from 'browser-image-compression';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -655,6 +655,9 @@ const MapPicker: React.FC<MapPickerProps> = ({
   const { t, i18n } = useTranslation();
   const isRu = (i18n.language || '').toLowerCase().startsWith('ru');
   const mapRef = React.useRef<MapRef>(null);
+  const hoveredBuildingIdRef = React.useRef<number | string | null>(null);
+  const alertedBuildingIdsRef = React.useRef<Set<number | string>>(new Set());
+  const [buildingPopup, setBuildingPopup] = useState<{ lng: number; lat: number } | null>(null);
   const orderFormRef = React.useRef<HTMLFormElement>(null);
   /** When true, next home submit uses wallet payment. */
   const orderFormWalletPayRef = React.useRef(false);
@@ -1218,9 +1221,27 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
   const handleMapClickWithTowers = useCallback(
     (event: any) => {
+      // Cluster click → zoom in and expand the cluster.
+      const clusterFeature = event?.features?.find(
+        (x: { layer?: { id?: string } }) => x.layer?.id === 'missions-clusters'
+      );
+      const clusterId = clusterFeature?.properties?.cluster_id;
+      if (clusterId != null && mapRef.current) {
+        const map = mapRef.current.getMap();
+        const coords = clusterFeature?.geometry?.coordinates as [number, number] | undefined;
+        const src = map.getSource('missions') as any;
+        if (coords && src?.getClusterExpansionZoom) {
+          src.getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
+            if (err) return;
+            map.easeTo({ center: coords, zoom, duration: 750, essential: true });
+          });
+          return;
+        }
+      }
+
+      // Unclustered mission click → open existing mission panel logic.
       const f = event?.features?.find(
-        (x: { layer?: { id?: string } }) =>
-          x.layer?.id === 'mission-towers' || x.layer?.id === 'mission-towers-hover'
+        (x: { layer?: { id?: string } }) => x.layer?.id === 'missions-unclustered'
       );
       const mid = f?.properties?.mission_id;
       if (mid != null) {
@@ -1234,6 +1255,69 @@ const MapPicker: React.FC<MapPickerProps> = ({
     },
     [jobs, handleMarkerClick, handleMapClick]
   );
+
+  // Permanently highlight buildings that have an active mission inside/adjacent.
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || !map.isStyleLoaded?.()) return;
+    if (!map.getLayer('3d-buildings')) return;
+
+    const clearPrev = () => {
+      const prev = alertedBuildingIdsRef.current;
+      for (const id of prev) {
+        try {
+          map.setFeatureState({ source: 'composite', sourceLayer: 'building', id }, { alert: false });
+        } catch {
+          // ignore
+        }
+      }
+      prev.clear();
+    };
+
+    const apply = () => {
+      clearPrev();
+
+      const next = new Set<number | string>();
+      const points = (missionsGeoJSON.features || []) as any[];
+      for (const feat of points) {
+        const coords = feat?.geometry?.coordinates as [number, number] | undefined;
+        if (!coords || coords.length !== 2) continue;
+        const p = map.project({ lng: coords[0], lat: coords[1] });
+        // Small screen-space buffer approximates "inside or immediately adjacent".
+        const pad = 6;
+        const bbox: [PointLike, PointLike] = [
+          [p.x - pad, p.y - pad],
+          [p.x + pad, p.y + pad],
+        ];
+        const hits = map.queryRenderedFeatures(bbox as any, { layers: ['3d-buildings'] });
+        for (const h of hits) {
+          const id = (h as any).id;
+          if (id == null) continue;
+          next.add(id);
+        }
+      }
+
+      for (const id of next) {
+        try {
+          map.setFeatureState({ source: 'composite', sourceLayer: 'building', id }, { alert: true });
+        } catch {
+          // ignore
+        }
+      }
+      alertedBuildingIdsRef.current = next;
+    };
+
+    // Ensure it runs once style has finished rendering buildings.
+    if (map.isStyleLoaded?.()) {
+      map.once?.('idle', apply);
+    } else {
+      map.once?.('styledata', () => map.once?.('idle', apply));
+    }
+
+    return () => {
+      // keep states; they will be reset on next load anyway
+    };
+  }, [missionsGeoJSON]);
 
   const handleCloseMissionBriefing = useCallback(() => {
     setSelectedMission(null);
@@ -1951,37 +2035,13 @@ const MapPicker: React.FC<MapPickerProps> = ({
     return { remainder, target, current, inputEgp };
   }, [bidJob, bidAmount]);
 
-  const missionsHeatmapGeoJSON = useMemo(() => {
-    const features = (jobs || [])
-      .filter(missionEligibleForMapPin)
-      .filter(
-        (j) =>
-          Number.isFinite(j.location_lat) &&
-          Number.isFinite(j.location_lng)
-      )
-      .map((j) => ({
-        type: 'Feature' as const,
-        geometry: {
-          type: 'Point' as const,
-          coordinates: [j.location_lng, j.location_lat],
-        },
-        properties: {
-          funding: Math.max(
-            0,
-            Number(j.current_funding ?? j.amount_target ?? 0)
-          ),
-        },
-      }));
-    return { type: 'FeatureCollection' as const, features };
-  }, [jobs]);
-
-  /** Polygon footprints + funding/status for 3D funding towers (same missions as heatmap). */
-  const missionTowersGeoJSON = useMemo(() => {
+  /** Clusterable mission points (standard GeoJSON FeatureCollection). */
+  const missionsGeoJSON = useMemo(() => {
     const features = (jobs || [])
       .filter(missionEligibleForMapPin)
       .filter((j) => Number.isFinite(j.location_lat) && Number.isFinite(j.location_lng))
       .map((j) => {
-        const fundingEgp = Math.floor(Math.max(0, Number(j.current_funding ?? 0)));
+        const fundingEgp = Math.floor(Math.max(0, Number(j.current_funding ?? j.amount_target ?? 0)));
         const isUserActive =
           !!currentUserId &&
           j.cleaner_id === currentUserId &&
@@ -1993,14 +2053,12 @@ const MapPicker: React.FC<MapPickerProps> = ({
         return {
           type: 'Feature' as const,
           geometry: {
-            type: 'Polygon' as const,
-            coordinates: [footprintCylinderRing(j.location_lng, j.location_lat, 2.5)],
+            type: 'Point' as const,
+            coordinates: [j.location_lng, j.location_lat],
           },
           properties: {
             mission_id: j.id,
-            /** Rounded integer EGP for label + extrusion height scale */
             funding_egp: fundingEgp,
-            /** For Mapbox paint: cleaner assigned OR active workflow statuses */
             has_cleaner: hasCleaner,
             mission_status: j.status,
             category: j.category,
@@ -2088,16 +2146,113 @@ const MapPicker: React.FC<MapPickerProps> = ({
     };
   }, [selectedLocation]);
 
+  /** Funding-weighted heatmap on the clustered `missions` source (inserted below 3D buildings). */
   useEffect(() => {
     const map = mapRef.current?.getMap();
-    if (!map?.isStyleLoaded()) return;
-    const src = map.getSource('missions-heatmap') as GeoJSONSource | undefined;
-    if (src?.setData) {
-      src.setData(missionsHeatmapGeoJSON as Parameters<GeoJSONSource['setData']>[0]);
-    }
-  }, [missionsHeatmapGeoJSON]);
+    if (!map) return;
 
-  /** Hover highlight + cursor for funding towers. */
+    const ensureHeatmapLayer = () => {
+      if (!map.isStyleLoaded?.()) return;
+      if (!map.getSource('missions')) return;
+      if (!map.getLayer('3d-buildings')) return;
+      if (map.getLayer('missions-heat')) return;
+
+      map.addLayer(
+        {
+          id: 'missions-heat',
+          type: 'heatmap',
+          source: 'missions',
+          paint: {
+            'heatmap-weight': [
+              'case',
+              ['has', 'point_count'],
+              [
+                'interpolate',
+                ['linear'],
+                ['coalesce', ['to-number', ['get', 'funding_sum']], 0],
+                0,
+                0,
+                250000,
+                1,
+              ],
+              [
+                'interpolate',
+                ['linear'],
+                ['coalesce', ['to-number', ['get', 'funding_egp']], 0],
+                0,
+                0,
+                50000,
+                1,
+              ],
+            ] as any,
+            'heatmap-intensity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              9,
+              1.1,
+              14,
+              0.65,
+              16,
+              0.2,
+            ],
+            'heatmap-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              8,
+              12,
+              11,
+              22,
+              14,
+              38,
+            ],
+            'heatmap-opacity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              10,
+              1,
+              13,
+              0.82,
+              14.5,
+              0.35,
+              16,
+              0,
+            ],
+            'heatmap-color': [
+              'interpolate',
+              ['linear'],
+              ['heatmap-density'],
+              0,
+              'rgba(0, 0, 0, 0)',
+              0.12,
+              'rgba(15, 23, 42, 0.22)',
+              0.35,
+              'rgba(30, 64, 175, 0.55)',
+              0.62,
+              'rgba(139, 92, 246, 0.82)',
+              0.85,
+              'rgba(249, 115, 22, 0.92)',
+              1,
+              'rgba(255, 69, 0, 1)',
+            ] as any,
+          },
+        },
+        '3d-buildings'
+      );
+    };
+
+    ensureHeatmapLayer();
+    map.on('styledata', ensureHeatmapLayer);
+    map.on('idle', ensureHeatmapLayer);
+    return () => {
+      map.off('styledata', ensureHeatmapLayer);
+      map.off('idle', ensureHeatmapLayer);
+    };
+  }, [missionsGeoJSON]);
+
+  /** Hover cursor + highlight for unclustered missions. */
   useEffect(() => {
     const map = mapRef.current?.getMap();
     if (!map) return;
@@ -2109,7 +2264,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
         return;
       }
       const feats = map.queryRenderedFeatures(e.point as PointLike, {
-        layers: ['mission-towers'],
+        layers: ['missions-unclustered', 'missions-clusters'],
       });
       if (feats.length > 0) {
         map.getCanvas().style.cursor = 'pointer';
@@ -2126,7 +2281,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
       map.off('mousemove', onMove);
       map.getCanvas().style.cursor = '';
     };
-  }, [mapMarkerLayerSuppressed, missionTowersGeoJSON]);
+  }, [mapMarkerLayerSuppressed, missionsGeoJSON]);
 
   const navigateToActiveMission = useCallback(() => {
     if (!activeWorkerMission) return;
@@ -2177,21 +2332,46 @@ const MapPicker: React.FC<MapPickerProps> = ({
         {...viewState}
         antialias
         onMove={(evt) => setViewState(evt.viewState)}
-        interactiveLayerIds={['mission-towers', 'mission-towers-hover']}
+        interactiveLayerIds={['missions-clusters', 'missions-unclustered', '3d-buildings']}
         onClick={handleMapClickWithTowers}
         maxBounds={EGYPT_MAX_BOUNDS}
         onLoad={(e: any) => {
           const map = e?.target;
           if (!map) return;
 
-          map.setFog({
-            range: [0.8, 8],
-            color: '#1a1f35',
-            'horizon-blend': 0.5,
-            'high-color': '#000000',
-            'space-color': '#000000',
-            'star-intensity': 0.8,
-          });
+          // Atmosphere: wait for style to fully load before applying fog/terrain.
+          const applyAtmosphereAndTerrain = () => {
+            try {
+              if (!map.getSource('mapbox-dem')) {
+                map.addSource('mapbox-dem', {
+                  type: 'raster-dem',
+                  url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                  tileSize: 512,
+                  maxzoom: 14,
+                });
+              }
+              map.setTerrain?.({ source: 'mapbox-dem', exaggeration: 1.5 });
+
+              map.setFog?.({
+                // Cyberpunk night haze: deep navy → violet horizon glow.
+                range: [0.6, 10],
+                color: '#070A12',
+                'horizon-blend': 0.22,
+                'high-color': '#0B1022',
+                'space-color': '#02030A',
+                'star-intensity': 0.25,
+              });
+            } catch {
+              // Non-fatal: custom styles / older mapbox runtimes may not support terrain/fog.
+            }
+          };
+
+          if (map.isStyleLoaded?.()) {
+            applyAtmosphereAndTerrain();
+          } else {
+            // styledata can fire multiple times; we only need to apply once.
+            map.once?.('styledata', applyAtmosphereAndTerrain);
+          }
 
           const hour = new Date().getHours();
           const isNight = hour >= 18 || hour < 6;
@@ -2216,52 +2396,11 @@ const MapPicker: React.FC<MapPickerProps> = ({
             }
           }
 
-          if (!map.getSource('missions-heatmap')) {
-            map.addSource('missions-heatmap', {
-              type: 'geojson',
-              data: { type: 'FeatureCollection', features: [] },
-            });
-            map.addLayer(
-              {
-                id: 'missions-heat',
-                type: 'heatmap',
-                source: 'missions-heatmap',
-                paint: {
-                  'heatmap-weight': [
-                    'interpolate',
-                    ['linear'],
-                    ['coalesce', ['get', 'funding'], 0],
-                    0,
-                    0,
-                    250,
-                    1,
-                  ],
-                  'heatmap-color': [
-                    'interpolate',
-                    ['linear'],
-                    ['heatmap-density'],
-                    0,
-                    'rgba(0,255,255,0)',
-                    0.2,
-                    'rgba(0,255,255,0.5)',
-                    0.5,
-                    'rgba(128,0,255,0.7)',
-                    1,
-                    'rgba(255,0,128,1)',
-                  ],
-                  'heatmap-radius': [
-                    'interpolate',
-                    ['linear'],
-                    ['zoom'],
-                    10,
-                    15,
-                    15,
-                    30,
-                  ],
-                },
-              },
-              'place_label'
-            );
+          try {
+            map.addModel('mop-model', '/models/mop.glb');
+            map.addModel('sponge-model', '/models/sponge.glb');
+          } catch {
+            /* non-fatal */
           }
 
           if (!map.getLayer('3d-buildings')) {
@@ -2274,7 +2413,17 @@ const MapPicker: React.FC<MapPickerProps> = ({
                 type: 'fill-extrusion',
                 minzoom: 13,
                 paint: {
-                  'fill-extrusion-color': '#222',
+                  // Feature-state driven interactivity:
+                  // - alert: mission-adjacent buildings (red)
+                  // - hover: cyan highlight
+                  'fill-extrusion-color': [
+                    'case',
+                    ['boolean', ['feature-state', 'alert'], false],
+                    '#ff2d2d',
+                    ['boolean', ['feature-state', 'hover'], false],
+                    '#00ffff',
+                    '#222',
+                  ] as any,
                   'fill-extrusion-height': ['get', 'height'],
                   'fill-extrusion-base': ['get', 'min_height'],
                   'fill-extrusion-opacity': 0.8,
@@ -2282,7 +2431,59 @@ const MapPicker: React.FC<MapPickerProps> = ({
               },
               'place_label'
             );
+            try {
+              map.setPaintProperty('3d-buildings', 'fill-extrusion-color-transition', { duration: 220, delay: 0 });
+              map.setPaintProperty('3d-buildings', 'fill-extrusion-opacity-transition', { duration: 220, delay: 0 });
+            } catch {
+              // ignore
+            }
           }
+
+          // Hover interactivity for buildings (feature-state + popup).
+          const clearHover = () => {
+            const prev = hoveredBuildingIdRef.current;
+            if (prev != null) {
+              try {
+                map.setFeatureState({ source: 'composite', sourceLayer: 'building', id: prev }, { hover: false });
+              } catch {
+                // ignore
+              }
+            }
+            hoveredBuildingIdRef.current = null;
+            setBuildingPopup(null);
+            map.getCanvas().style.cursor = '';
+          };
+
+          map.on('mousemove', '3d-buildings', (ev: any) => {
+            if (!ev?.features?.length) return clearHover();
+            const f = ev.features[0];
+            const id = f?.id;
+            if (id == null) return clearHover();
+
+            if (hoveredBuildingIdRef.current !== id) {
+              const prev = hoveredBuildingIdRef.current;
+              if (prev != null) {
+                try {
+                  map.setFeatureState({ source: 'composite', sourceLayer: 'building', id: prev }, { hover: false });
+                } catch {
+                  // ignore
+                }
+              }
+              hoveredBuildingIdRef.current = id;
+              try {
+                map.setFeatureState({ source: 'composite', sourceLayer: 'building', id }, { hover: true });
+              } catch {
+                // ignore
+              }
+            }
+            map.getCanvas().style.cursor = 'pointer';
+            const lngLat = ev.lngLat;
+            if (lngLat && Number.isFinite(lngLat.lng) && Number.isFinite(lngLat.lat)) {
+              setBuildingPopup({ lng: lngLat.lng, lat: lngLat.lat });
+            }
+          });
+
+          map.on('mouseleave', '3d-buildings', clearHover);
         }}
         mapStyle={customDarkStyle}
         mapboxAccessToken={MAPBOX_TOKEN}
@@ -2313,6 +2514,22 @@ const MapPicker: React.FC<MapPickerProps> = ({
             }}
           />
         </Source>
+
+        {buildingPopup && (
+          <Popup
+            longitude={buildingPopup.lng}
+            latitude={buildingPopup.lat}
+            anchor="top"
+            closeButton={false}
+            closeOnClick={false}
+            maxWidth="220px"
+            offset={12}
+          >
+            <div className="text-[11px] font-bold text-slate-100">
+              Building Info
+            </div>
+          </Popup>
+        )}
         <GeolocateControl
           position="bottom-right"
           positionOptions={{ enableHighAccuracy: true }}
@@ -2364,37 +2581,85 @@ const MapPicker: React.FC<MapPickerProps> = ({
           />
         </Source>
 
-        {/* 3D funding pillars (thin cylinders) — zoom > 12 (minzoom 13). */}
-        <Source id="mission-towers" type="geojson" data={missionTowersGeoJSON}>
+        {/* Missions (clustered) */}
+        <Source
+          id="missions"
+          type="geojson"
+          data={missionsGeoJSON}
+          cluster
+          clusterMaxZoom={14}
+          clusterRadius={50}
+          clusterProperties={{
+            funding_sum: ['+', ['coalesce', ['to-number', ['get', 'funding_egp']], 0]],
+          }}
+        >
+          {/* Clusters layer */}
           <Layer
-            id="mission-towers"
-            type="fill-extrusion"
-            minzoom={13}
+            id="missions-clusters"
+            type="circle"
+            filter={['has', 'point_count']}
             paint={{
-              'fill-extrusion-height': [
-                'case',
-                ['==', ['get', 'is_user_active'], 1],
-                0,
-                [
-                  'interpolate',
-                  ['linear'],
-                  ['coalesce', ['to-number', ['get', 'funding_egp'], 0], 0],
-                  0,
-                  0,
-                  100,
-                  10,
-                  1000,
-                  50,
-                  10000,
-                  200,
-                ],
+              'circle-color': 'rgba(0, 255, 255, 0.18)',
+              'circle-opacity': mapMarkerLayerSuppressed ? 0.05 : 0.9,
+              'circle-stroke-color': 'rgba(0, 255, 255, 0.85)',
+              'circle-stroke-width': 2,
+              'circle-blur': 0.2,
+              'circle-radius': [
+                'step',
+                ['get', 'point_count'],
+                20,
+                10,
+                30,
+                50,
+                40,
               ] as any,
-              'fill-extrusion-base': 0,
-              // Constitution v6.0 tower colors (case order matters).
-              'fill-extrusion-color': [
+            }}
+          />
+
+          {/* Cluster count layer */}
+          <Layer
+            id="missions-cluster-count"
+            type="symbol"
+            filter={['has', 'point_count']}
+            layout={{
+              'text-field': '{point_count_abbreviated}',
+              'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+              'text-size': 13,
+              'text-allow-overlap': true,
+            }}
+            paint={{
+              'text-color': '#ffffff',
+              'text-halo-color': 'rgba(0,0,0,0.65)',
+              'text-halo-width': 1.6,
+            }}
+          />
+
+          {/* Unclustered missions — 3D GLB markers (heatmap + clusters stay above heatmap layer in stack) */}
+          <Layer
+            id="missions-unclustered"
+            type="model"
+            filter={['!', ['has', 'point_count']]}
+            layout={{
+              'model-id': [
+                'case',
+                [
+                  'any',
+                  ['==', ['get', 'category'], 'office'],
+                  ['==', ['get', 'category'], 'house'],
+                  ['==', ['get', 'category'], 'home'],
+                ],
+                'sponge-model',
+                'mop-model',
+              ] as any,
+            }}
+            paint={{
+              'model-scale': [44, 44, 44],
+              'model-rotation': [0, 0, 38],
+              'model-opacity': mapMarkerLayerSuppressed ? 0.06 : 0.94,
+              'model-color': [
                 'case',
                 ['==', ['get', 'is_selected'], 1],
-                '#00FFFF',
+                '#22d3ee',
                 [
                   'any',
                   ['==', ['get', 'has_cleaner'], 1],
@@ -2402,13 +2667,13 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   ['==', ['get', 'mission_status'], 'review'],
                   ['==', ['get', 'mission_status'], 'pending_approval'],
                 ],
-                '#0000FF',
+                '#6366f1',
                 [
                   'all',
                   ['==', ['get', 'category'], 'public'],
                   ['==', ['get', 'is_available'], 1],
                 ],
-                '#00FF00',
+                '#34d399',
                 [
                   'all',
                   [
@@ -2418,65 +2683,36 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   ],
                   ['==', ['get', 'is_available'], 1],
                 ],
-                '#FFD700',
-                '#64748b',
+                '#fb923c',
+                '#94a3b8',
               ] as any,
-              'fill-extrusion-opacity': mapMarkerLayerSuppressed ? 0.06 : 0.8,
+              'model-color-mix-intensity': 0.72,
+              'model-cast-shadows': false,
+              'model-receive-shadows': false,
             }}
           />
+
+          {/* Unclustered funding labels */}
           <Layer
-            id="mission-towers-hover"
-            type="fill-extrusion"
-            minzoom={13}
-            filter={
-              hoveredTowerMissionId
-                ? (['==', ['get', 'mission_id'], hoveredTowerMissionId] as any)
-                : (['==', ['literal', 1], ['literal', 0]] as any)
-            }
-            paint={{
-              'fill-extrusion-height': [
-                'case',
-                ['==', ['get', 'is_user_active'], 1],
-                0,
-                [
-                  'interpolate',
-                  ['linear'],
-                  ['coalesce', ['to-number', ['get', 'funding_egp'], 0], 0],
-                  0,
-                  0,
-                  100,
-                  10,
-                  1000,
-                  50,
-                  10000,
-                  200,
-                ],
-              ] as any,
-              'fill-extrusion-base': 0,
-              'fill-extrusion-color': '#00FFFF',
-              'fill-extrusion-opacity': mapMarkerLayerSuppressed ? 0 : 0.8,
-            }}
-          />
-          <Layer
-            id="mission-towers-labels"
+            id="missions-unclustered-label"
             type="symbol"
-            minzoom={13}
+            filter={['!', ['has', 'point_count']]}
             layout={{
               'text-field': [
                 'to-string',
                 ['round', ['coalesce', ['to-number', ['get', 'funding_egp'], 0], 0]],
               ] as any,
-              'text-size': 13,
+              'text-size': 12,
               'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
               'text-anchor': 'bottom',
-              'text-offset': [0, -0.6],
+              'text-offset': [0, -2.05],
               'text-allow-overlap': true,
             }}
             paint={{
               'text-color': '#ffffff',
-              'text-halo-color': '#0a0a0a',
-              'text-halo-width': 2.2,
-              'text-halo-blur': 0.3,
+              'text-halo-color': 'rgba(0,0,0,0.85)',
+              'text-halo-width': 2,
+              'text-halo-blur': 0.25,
               'text-opacity': mapMarkerLayerSuppressed ? 0.06 : 1,
             }}
           />
