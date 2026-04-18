@@ -1278,11 +1278,14 @@ const MapPicker: React.FC<MapPickerProps> = ({
       clearPrev();
 
       const next = new Set<number | string>();
-      const points = (missionsGeoJSON.features || []) as any[];
-      for (const feat of points) {
-        const coords = feat?.geometry?.coordinates as [number, number] | undefined;
-        if (!coords || coords.length !== 2) continue;
-        const p = map.project({ lng: coords[0], lat: coords[1] });
+      // Avoid referencing `missionsGeoJSON` here (it is declared later in the file).
+      // We only need coordinates for screen-space building proximity queries.
+      const points = (jobs || [])
+        .filter(missionEligibleForMapPin)
+        .filter((j) => Number.isFinite(j.location_lat) && Number.isFinite(j.location_lng));
+
+      for (const j of points) {
+        const p = map.project({ lng: j.location_lng, lat: j.location_lat });
         // Small screen-space buffer approximates "inside or immediately adjacent".
         const pad = 6;
         const bbox: [PointLike, PointLike] = [
@@ -1317,7 +1320,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
     return () => {
       // keep states; they will be reset on next load anyway
     };
-  }, [missionsGeoJSON]);
+  }, [jobs]);
 
   const handleCloseMissionBriefing = useCallback(() => {
     setSelectedMission(null);
@@ -2397,6 +2400,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           }
 
           try {
+            console.log('Mapbox 3D models loading version 2.0...');
             map.addModel('mop-model', '/models/mop.glb');
             map.addModel('sponge-model', '/models/sponge.glb');
           } catch {
@@ -2493,6 +2497,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="neon-roads-glow"
             type="line"
+            source="mapbox-streets"
             source-layer="road"
             filter={['in', ['get', 'class'], ['literal', ['motorway', 'primary', 'secondary', 'trunk']]]}
             paint={{
@@ -2505,6 +2510,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="neon-roads"
             type="line"
+            source="mapbox-streets"
             source-layer="road"
             filter={['in', ['get', 'class'], ['literal', ['motorway', 'primary', 'secondary', 'trunk']]]}
             paint={{
@@ -2542,6 +2548,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="draft-pin"
             type="circle"
+            source="draft-pin"
             filter={['==', ['get', 'kind'], 'draft']}
             paint={{
               'circle-radius': 11,
@@ -2559,6 +2566,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="mission-worker-pulse-outer"
             type="circle"
+            source="mission-worker-pulse"
             minzoom={12}
             paint={{
               'circle-radius': 18,
@@ -2570,6 +2578,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="mission-worker-pulse-inner"
             type="circle"
+            source="mission-worker-pulse"
             minzoom={12}
             paint={{
               'circle-radius': 7,
@@ -2597,6 +2606,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="missions-clusters"
             type="circle"
+            source="missions"
             filter={['has', 'point_count']}
             paint={{
               'circle-color': 'rgba(0, 255, 255, 0.18)',
@@ -2620,6 +2630,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="missions-cluster-count"
             type="symbol"
+            source="missions"
             filter={['has', 'point_count']}
             layout={{
               'text-field': '{point_count_abbreviated}',
@@ -2638,6 +2649,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="missions-unclustered"
             type="model"
+            source="missions"
             filter={['!', ['has', 'point_count']]}
             layout={{
               'model-id': [
@@ -2696,6 +2708,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
           <Layer
             id="missions-unclustered-label"
             type="symbol"
+            source="missions"
             filter={['!', ['has', 'point_count']]}
             layout={{
               'text-field': [
