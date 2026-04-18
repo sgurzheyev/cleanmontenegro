@@ -2409,10 +2409,14 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   type: 'fill',
                   source: 'composite',
                   'source-layer': 'landcover',
-                  filter: ['match', ['get', 'class'], ['wood', 'forest', 'park', 'grass', 'scrub'], true, false] as any,
+                  filter: [
+                    'in',
+                    ['get', 'class'],
+                    ['literal', ['wood', 'scrub', 'grass', 'park', 'cemetery', 'pitch']],
+                  ] as any,
                   paint: {
-                    'fill-color': '#0f3822',
-                    'fill-opacity': 0.35,
+                    'fill-color': '#27ae60',
+                    'fill-opacity': 0.5,
                   },
                 } as any,
                 'place_label'
@@ -2425,10 +2429,14 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   type: 'fill',
                   source: 'composite',
                   'source-layer': 'landuse',
-                  filter: ['match', ['get', 'class'], ['park', 'grass', 'cemetery'], true, false] as any,
+                  filter: [
+                    'in',
+                    ['get', 'class'],
+                    ['literal', ['wood', 'scrub', 'grass', 'park', 'cemetery', 'pitch']],
+                  ] as any,
                   paint: {
-                    'fill-color': '#0b2e1b',
-                    'fill-opacity': 0.3,
+                    'fill-color': '#27ae60',
+                    'fill-opacity': 0.5,
                   },
                 } as any,
                 'place_label'
