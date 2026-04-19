@@ -869,9 +869,14 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
       // uses different status/flow and is used from MapPicker / city pin wallet path).
       // Repo schema uses creator_id; migration 20260421_missions_user_id_mirror_creator.sql adds
       // user_id + BEFORE INSERT trigger so user_id matches creator_id for RLS policies that check user_id.
-      const { data: newMission, error: missionError } = await supabase
-        .from('missions')
-        .insert({
+      // IMPORTANT: avoid `.select().single()` on insert.
+      // If SELECT RLS is stricter than INSERT RLS, PostgREST can still throw an RLS error
+      // when returning the inserted row representation — even though the row is inserted.
+      // Fix: generate the mission UUID client-side and insert with return=minimal.
+      const missionId = globalThis.crypto?.randomUUID?.() ?? String(Date.now());
+      const { error: missionError } = await supabase.from('missions').insert(
+        {
+          id: missionId,
           creator_id: creatorId,
           category: taskType === 'city' ? 'public' : 'home',
           amount_target: floorEgp(amount),
@@ -882,12 +887,11 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
           status: 'pending_payment',
           description: orderDescription || null,
           photo_urls: [],
-        })
-        .select('id')
-        .single();
+        } as any,
+        { returning: 'minimal' } as any,
+      );
 
       if (missionError) throw missionError;
-      if (!newMission?.id) throw new Error('Failed to create mission');
 
       // City pin: Stripe Checkout for Scout Stake (see EDGE_FN_STRIPE_MISSION_CHECKOUT — implement in Supabase Edge Functions).
       if (taskType === 'city') {
@@ -895,9 +899,9 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
           EDGE_FN_STRIPE_MISSION_CHECKOUT,
           {
             body: {
-              mission_id: newMission.id,
+              mission_id: missionId,
               amount_eur: SCOUT_STAKE_FEE_EGP,
-              success_url: `${window.location.origin}/?stripe_mission=success&mission_id=${encodeURIComponent(newMission.id)}`,
+              success_url: `${window.location.origin}/?stripe_mission=success&mission_id=${encodeURIComponent(missionId)}`,
               cancel_url: `${window.location.origin}/?stripe_mission=cancel`,
             },
           },
@@ -933,7 +937,7 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
 
       // Home mission: pay from wallet (after Stripe top-up if needed).
       const { error: payErr } = await supabase.rpc('pay_mission_from_wallet', {
-        p_mission_id: newMission.id,
+        p_mission_id: missionId,
       });
       if (payErr) {
         toast.error(t('insufficientWalletBalance'));
