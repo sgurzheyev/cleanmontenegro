@@ -28,6 +28,7 @@ import {
   CITY_MAX_PRICE,
   SCOUT_STAKE_FEE_EGP,
   STORAGE_BUCKET_ORDER_PHOTOS,
+  EDGE_FN_STRIPE_MISSION_CHECKOUT,
 } from '../constants';
 import { formatEgp, formatEgpDigits } from '../src/lib/formatMoney';
 import { profileWalletBalanceEgp } from '../src/lib/walletCredit';
@@ -1846,23 +1847,39 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
       // 2) For City (public) missions, create mission via RPC (Scout Stake fee in EGP in DB)
       if (taskType === 'city') {
-        const { error } = await supabase.rpc('create_public_mission_with_fee', {
-          p_title: descriptionToSave || 'City Mission',
-          p_description: descriptionToSave || null,
-          p_amount_target: floorEgp(amount),
-          p_location_lat: Number(selectedLocation.lat),
-          p_location_lng: Number(selectedLocation.lng),
-          p_photo_urls: creatorPhotoUrls || [],
-        });
+        // IMPORTANT: don't use the old wallet / Scout Stake RPC flow.
+        // Create a pending_payment mission row and immediately redirect to Stripe Checkout.
+        // Also avoid `.select().single()` on insert (SELECT RLS may be stricter than INSERT).
+        const missionId = globalThis.crypto?.randomUUID?.() ?? `m_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-        if (error) {
-          console.error('Create public mission error:', error);
-          setOrderError(
-            error.message ||
-              t('cityMissionWalletHint', { amount: formatEgp(SCOUT_STAKE_FEE_EGP) })
-          );
+        const { error: insertErr } = await supabase.from('missions').insert(
+          {
+            id: missionId,
+            creator_id: session.user.id,
+            category: 'public',
+            status: 'pending_payment',
+            amount_target: floorEgp(amount),
+            current_funding: 0,
+            location_lat: Number(selectedLocation.lat),
+            location_lng: Number(selectedLocation.lng),
+            description: descriptionToSave || null,
+            photo_urls: creatorPhotoUrls || [],
+          } as any,
+          { returning: 'minimal' } as any,
+        );
+
+        if (insertErr) {
+          console.error('Create public mission insert error:', insertErr);
+          setOrderError(insertErr.message || t('stripeMissionCheckoutFailed'));
           return;
         }
+
+        // Close modal immediately after the row is inserted.
+        setOrderSubmitting(false);
+        setTaskTypeSelected(null);
+        setOrderError(null);
+        setOrderSuccess(null);
+        setDescriptionPolicyError(null);
 
         // Telegram notification (non-blocking)
         try {
@@ -1903,15 +1920,40 @@ const MapPicker: React.FC<MapPickerProps> = ({
           console.error('Telegram notification error:', err);
         }
 
-        setOrderSuccess(t('cityMissionCreatedScout', { amount: formatEgp(SCOUT_STAKE_FEE_EGP) }));
-        setOrderAmount('');
-        setOrderDescription('');
-        setOrderPhotos([]);
-        setDescriptionPolicyError(null);
-        setPhotoVerification({ verifying: false, allApproved: true, hasRejected: false });
-        setSelectedLocation(null);
-        await fetchMissions();
-        setTaskType(null);
+        // Stripe Checkout redirect (Test Mode): create session via Edge Function and redirect.
+        const { data: checkoutPayload, error: checkoutFnErr } = await supabase.functions.invoke(
+          EDGE_FN_STRIPE_MISSION_CHECKOUT,
+          {
+            body: {
+              mission_id: missionId,
+              amount_eur: SCOUT_STAKE_FEE_EGP,
+              success_url: `${window.location.origin}/?stripe_mission=success&mission_id=${encodeURIComponent(missionId)}`,
+              cancel_url: `${window.location.origin}/?stripe_mission=cancel`,
+            },
+          },
+        );
+
+        if (checkoutFnErr) {
+          console.error('stripe mission checkout:', checkoutFnErr);
+          toast.error(t('stripeMissionCheckoutFailed'));
+          return;
+        }
+
+        const checkoutUrl =
+          checkoutPayload &&
+          typeof checkoutPayload === 'object' &&
+          checkoutPayload !== null &&
+          'url' in checkoutPayload &&
+          typeof (checkoutPayload as { url?: unknown }).url === 'string'
+            ? (checkoutPayload as { url: string }).url
+            : null;
+
+        if (!checkoutUrl) {
+          toast.error(t('stripeMissionCheckoutFailed'));
+          return;
+        }
+
+        window.location.href = checkoutUrl;
         return;
       }
 
@@ -2437,13 +2479,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
             /* non-fatal */
           }
 
-          try {
-            console.log('Mapbox 3D models loading version 2.0...');
-            map.addModel('mop-model', '/models/mop.glb');
-            map.addModel('sponge-model', '/models/sponge.glb');
-          } catch {
-            /* non-fatal */
-          }
+          // NOTE: custom GLB models postponed — keep map functional without external 3D assets.
 
           if (!map.getLayer('3d-buildings')) {
             map.addLayer(
@@ -2683,33 +2719,18 @@ const MapPicker: React.FC<MapPickerProps> = ({
             }}
           />
 
-          {/* Unclustered missions — 3D GLB markers (heatmap + clusters stay above heatmap layer in stack) */}
+          {/* Unclustered missions — native Mapbox circles (no external 3D models) */}
           <Layer
             id="missions-unclustered"
-            type="model"
+            type="circle"
             source="missions"
             filter={['!', ['has', 'point_count']]}
-            layout={{
-              'model-id': [
-                'case',
-                [
-                  'any',
-                  ['==', ['get', 'category'], 'office'],
-                  ['==', ['get', 'category'], 'house'],
-                  ['==', ['get', 'category'], 'home'],
-                ],
-                'sponge-model',
-                'mop-model',
-              ] as any,
-            }}
             paint={{
-              'model-scale': [44, 44, 44],
-              'model-rotation': [0, 0, 38],
-              'model-opacity': mapMarkerLayerSuppressed ? 0.06 : 0.94,
-              'model-color': [
+              'circle-radius': 11,
+              'circle-color': [
                 'case',
                 ['==', ['get', 'is_selected'], 1],
-                '#22d3ee',
+                '#00FFFF',
                 [
                   'any',
                   ['==', ['get', 'has_cleaner'], 1],
@@ -2717,13 +2738,13 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   ['==', ['get', 'mission_status'], 'review'],
                   ['==', ['get', 'mission_status'], 'pending_approval'],
                 ],
-                '#6366f1',
+                '#0000FF',
                 [
                   'all',
                   ['==', ['get', 'category'], 'public'],
                   ['==', ['get', 'is_available'], 1],
                 ],
-                '#34d399',
+                '#00FF00',
                 [
                   'all',
                   [
@@ -2733,12 +2754,14 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   ],
                   ['==', ['get', 'is_available'], 1],
                 ],
-                '#fb923c',
-                '#94a3b8',
+                '#F97316',
+                '#64748b',
               ] as any,
-              'model-color-mix-intensity': 0.72,
-              'model-cast-shadows': false,
-              'model-receive-shadows': false,
+              'circle-opacity': mapMarkerLayerSuppressed ? 0.06 : 0.92,
+              'circle-stroke-width': 2,
+              'circle-stroke-color': 'rgba(255,255,255,0.35)',
+              'circle-stroke-opacity': mapMarkerLayerSuppressed ? 0.08 : 0.95,
+              'circle-blur': 0.15,
             }}
           />
 
@@ -2756,7 +2779,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
               'text-size': 12,
               'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
               'text-anchor': 'bottom',
-              'text-offset': [0, -2.05],
+              'text-offset': [0, -1.1],
               'text-allow-overlap': true,
             }}
             paint={{
