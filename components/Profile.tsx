@@ -847,6 +847,12 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
 
     try {
       setOrderSubmitting(true);
+      // OAuth (e.g. Google) on mobile: refresh session so the next request carries a valid JWT for RLS.
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        /* non-fatal: continue to getUser */
+      }
       // Use getUser() (not getSession) so the JWT is validated; RLS uses auth.uid() and
       // mobile WebViews often have a cached session that must be verified before insert.
       const {
@@ -859,15 +865,17 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
         return;
       }
 
-      // Stripe-only (Montenegro): create mission as pending_payment and pay from wallet.
-      // Users top up their wallet with Stripe first (Profile → Top Up).
-      // RLS: WITH CHECK should use creator_id = auth.uid() — creator_id must match the validated JWT user.
+      // Direct insert into public.missions only (not create_public_mission_with_fee — that RPC
+      // uses different status/flow and is used from MapPicker / city pin wallet path).
+      // Repo schema uses creator_id; migration 20260421_missions_user_id_mirror_creator.sql adds
+      // user_id + BEFORE INSERT trigger so user_id matches creator_id for RLS policies that check user_id.
       const { data: newMission, error: missionError } = await supabase
         .from('missions')
         .insert({
           creator_id: creatorId,
           category: taskType === 'city' ? 'public' : 'home',
           amount_target: floorEgp(amount),
+          current_funding: 0,
           // TODO: wire actual map location; using fallback center for now (Podgorica).
           location_lat: 42.4411,
           location_lng: 19.2636,
