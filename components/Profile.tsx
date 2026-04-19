@@ -958,9 +958,33 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
   const retryPendingPaymentMission = async (job: Job) => {
     try {
       setPhantomPaymentActionId(job.id);
-      await payMissionFromWallet(job);
+      const { data: checkoutPayload, error: checkoutFnErr } = await supabase.functions.invoke(
+        'stripe-mission-checkout',
+        {
+          body: { missionId: job.id },
+        }
+      );
+      if (checkoutFnErr) {
+        console.error('Stripe Edge Function Error:', checkoutFnErr);
+        toast.error(t('stripeMissionCheckoutFailed'));
+        return;
+      }
+      const checkoutUrl =
+        checkoutPayload &&
+        typeof checkoutPayload === 'object' &&
+        checkoutPayload !== null &&
+        'url' in checkoutPayload &&
+        typeof (checkoutPayload as { url?: unknown }).url === 'string'
+          ? (checkoutPayload as { url: string }).url
+          : null;
+      if (!checkoutUrl) {
+        console.error('Stripe Edge Function Error:', checkoutPayload);
+        toast.error(t('stripeMissionCheckoutFailed'));
+        return;
+      }
+      window.location.href = checkoutUrl;
     } catch (e) {
-      console.error('retryPendingPaymentMission:', e);
+      console.error('Stripe Edge Function Error:', e);
       toast.error(t('retryPaymentFailed'));
     } finally {
       setPhantomPaymentActionId(null);
@@ -2144,8 +2168,6 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                 const isPhantomPayment = job.status === 'pending_payment';
                 if (isPhantomPayment) {
                   const busy = phantomPaymentActionId === job.id;
-                  const targetEgp = floorEgp(Number(job.amount_target ?? 0));
-                  const canPayFromWallet = balance >= targetEgp && targetEgp > 0;
                   return (
                     <div
                       key={job.id}
@@ -2167,16 +2189,6 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                         )}
                       </p>
                       <div className="flex flex-col gap-2">
-                        {canPayFromWallet && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => payMissionFromWallet(job)}
-                            className="w-full rounded-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-black bg-gradient-to-r from-cyan-300 to-emerald-400 hover:brightness-110 border border-cyan-400/60 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(34,211,238,0.35)]"
-                          >
-                            {t('payFromWallet')}
-                          </button>
-                        )}
                         <div className="flex flex-wrap gap-2">
                           <div className="flex flex-col gap-1 min-w-0">
                             <button
@@ -2187,11 +2199,6 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                             >
                               {t('retryPayment')}
                             </button>
-                            {!canPayFromWallet && (
-                              <p className="text-[9px] text-amber-300/90 leading-snug max-w-[14rem]">
-                                {t('insufficientWalletBalance')}
-                              </p>
-                            )}
                           </div>
                           <button
                             type="button"
@@ -2499,8 +2506,6 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                   const isPhantomPayment = job.status === 'pending_payment';
                   if (isPhantomPayment) {
                     const busy = phantomPaymentActionId === job.id;
-                    const targetEgp = floorEgp(Number(job.amount_target ?? 0));
-                    const canPayFromWallet = balance >= targetEgp && targetEgp > 0;
                     return (
                       <div
                         key={job.id}
@@ -2525,16 +2530,6 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                           <p className="text-xs text-slate-400 mb-3">{job.description}</p>
                         )}
                         <div className="flex flex-col gap-2">
-                          {canPayFromWallet && (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => payMissionFromWallet(job)}
-                              className="w-full rounded-full px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-black bg-gradient-to-r from-cyan-300 to-emerald-400 hover:brightness-110 border border-cyan-400/60 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(34,211,238,0.35)]"
-                            >
-                              {t('payFromWallet')}
-                            </button>
-                          )}
                           <div className="flex flex-wrap gap-2">
                             <div className="flex flex-col gap-1 min-w-0">
                               <button
@@ -2545,11 +2540,6 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                               >
                                 {t('retryPayment')}
                               </button>
-                              {!canPayFromWallet && (
-                                <p className="text-[9px] text-amber-300/90 leading-snug max-w-[14rem]">
-                                  {t('insufficientWalletBalance')}
-                                </p>
-                              )}
                             </div>
                             <button
                               type="button"

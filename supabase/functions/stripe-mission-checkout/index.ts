@@ -26,7 +26,8 @@ function isLikelyHttpUrl(s: string): boolean {
 
 /**
  * Creates a Stripe Checkout Session for city mission (Scout Stake) payment.
- * Body: { mission_id, amount_eur, success_url, cancel_url }
+ * Body (preferred): { mission_id, amount_eur, success_url, cancel_url }
+ * Body (mobile-safe shorthand): { missionId } or { mission_id } — success/cancel derived from Origin.
  */
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -45,19 +46,43 @@ Deno.serve(async (req) => {
 
     const raw = (await req.json()) as {
       mission_id?: unknown;
+      missionId?: unknown;
       amount_eur?: unknown;
+      amountEur?: unknown;
       success_url?: unknown;
+      successUrl?: unknown;
       cancel_url?: unknown;
+      cancelUrl?: unknown;
     };
 
-    const missionId = typeof raw.mission_id === 'string' ? raw.mission_id.trim() : '';
+    const missionId =
+      typeof raw.mission_id === 'string'
+        ? raw.mission_id.trim()
+        : typeof raw.missionId === 'string'
+          ? raw.missionId.trim()
+          : '';
     if (!missionId) {
       return json(400, { error: 'Missing or invalid mission_id' });
     }
 
+    const origin = req.headers.get('origin') || '';
+
     const successUrl =
-      typeof raw.success_url === 'string' ? raw.success_url.trim() : '';
-    const cancelUrl = typeof raw.cancel_url === 'string' ? raw.cancel_url.trim() : '';
+      typeof raw.success_url === 'string'
+        ? raw.success_url.trim()
+        : typeof raw.successUrl === 'string'
+          ? raw.successUrl.trim()
+          : origin
+            ? `${origin}/?stripe_mission=success&mission_id=${encodeURIComponent(missionId)}`
+            : '';
+    const cancelUrl =
+      typeof raw.cancel_url === 'string'
+        ? raw.cancel_url.trim()
+        : typeof raw.cancelUrl === 'string'
+          ? raw.cancelUrl.trim()
+          : origin
+            ? `${origin}/?stripe_mission=cancel`
+            : '';
     if (!successUrl || !isLikelyHttpUrl(successUrl)) {
       return json(400, { error: 'Missing or invalid success_url' });
     }
@@ -65,13 +90,10 @@ Deno.serve(async (req) => {
       return json(400, { error: 'Missing or invalid cancel_url' });
     }
 
-    if (raw.amount_eur === undefined || raw.amount_eur === null) {
-      return json(400, { error: 'Missing amount_eur' });
-    }
+    const amountRaw =
+      raw.amount_eur ?? raw.amountEur ?? 1;
 
-    const amountEur = Math.floor(
-      Math.max(0, Number(raw.amount_eur)),
-    );
+    const amountEur = Math.floor(Math.max(0, Number(amountRaw)));
     if (!Number.isFinite(amountEur) || amountEur <= 0) {
       return json(400, { error: 'Invalid amount_eur' });
     }

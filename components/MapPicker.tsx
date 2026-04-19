@@ -1924,17 +1924,17 @@ const MapPicker: React.FC<MapPickerProps> = ({
         const { data: checkoutPayload, error: checkoutFnErr } = await supabase.functions.invoke(
           EDGE_FN_STRIPE_MISSION_CHECKOUT,
           {
-            body: {
-              mission_id: missionId,
-              amount_eur: SCOUT_STAKE_FEE_EGP,
-              success_url: `${window.location.origin}/?stripe_mission=success&mission_id=${encodeURIComponent(missionId)}`,
-              cancel_url: `${window.location.origin}/?stripe_mission=cancel`,
-            },
+            body: { missionId },
           },
         );
 
         if (checkoutFnErr) {
-          console.error('stripe mission checkout:', checkoutFnErr);
+          console.error('Stripe Edge Function Error:', checkoutFnErr);
+          toast.error(t('stripeMissionCheckoutFailed'));
+          return;
+        }
+        if (checkoutPayload && typeof checkoutPayload === 'object' && 'error' in checkoutPayload) {
+          console.error('Stripe Edge Function Error:', checkoutPayload);
           toast.error(t('stripeMissionCheckoutFailed'));
           return;
         }
@@ -1949,6 +1949,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
             : null;
 
         if (!checkoutUrl) {
+          console.error('Stripe Edge Function Error:', checkoutPayload);
           toast.error(t('stripeMissionCheckoutFailed'));
           return;
         }
