@@ -27,6 +27,7 @@ import {
   CITY_MIN_PRICE,
   CITY_MAX_PRICE,
   SCOUT_STAKE_FEE_EGP,
+  STORAGE_BUCKET_ORDER_PHOTOS,
 } from '../constants';
 import { formatEgp, formatEgpDigits } from '../src/lib/formatMoney';
 import { profileWalletBalanceEgp } from '../src/lib/walletCredit';
@@ -367,24 +368,14 @@ function ProofUploadModal({
         const fileName = `proof_${mission.id}_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
         let uploadError: Error | null = null;
 
-        const tryPrimary = await supabase.storage
-          .from('mission-proofs')
+        const up = await supabase.storage
+          .from(STORAGE_BUCKET_ORDER_PHOTOS)
           .upload(fileName, toUpload, { upsert: false, contentType: 'image/jpeg' });
-        if (tryPrimary.error) {
-          const tryFallback = await supabase.storage
-            .from('order-photos')
-            .upload(fileName, toUpload, { upsert: false, contentType: 'image/jpeg' });
-          if (tryFallback.error) uploadError = tryFallback.error;
-          else {
-            const {
-              data: { publicUrl },
-            } = supabase.storage.from('order-photos').getPublicUrl(fileName);
-            uploadedUrls.push(publicUrl);
-          }
-        } else {
+        if (up.error) uploadError = up.error;
+        else {
           const {
             data: { publicUrl },
-          } = supabase.storage.from('mission-proofs').getPublicUrl(fileName);
+          } = supabase.storage.from(STORAGE_BUCKET_ORDER_PHOTOS).getPublicUrl(fileName);
           uploadedUrls.push(publicUrl);
         }
 
@@ -1840,13 +1831,13 @@ const MapPicker: React.FC<MapPickerProps> = ({
         for (const file of compressedFiles) {
           const safeFileName = `mission_${Date.now()}_${Math.random().toString(36).substring(2)}.jpg`;
           const { error: uploadError } = await supabase.storage
-            .from('order-photos')
+            .from(STORAGE_BUCKET_ORDER_PHOTOS)
             .upload(safeFileName, file, { upsert: false, contentType: 'image/jpeg' });
           if (uploadError) {
             throw uploadError;
           }
           const { data: { publicUrl } } = supabase.storage
-            .from('order-photos')
+            .from(STORAGE_BUCKET_ORDER_PHOTOS)
             .getPublicUrl(safeFileName);
           uploaded.push(publicUrl);
         }

@@ -18,6 +18,10 @@ import {
   CITY_MIN_PRICE,
   CITY_MAX_PRICE,
   SCOUT_STAKE_FEE_EGP,
+  STORAGE_BUCKET_ORDER_PHOTOS,
+  STORAGE_BUCKET_LIVENESS_VIDEOS,
+  EDGE_FN_STRIPE_MISSION_CHECKOUT,
+  DISPLAY_CURRENCY_SUFFIX,
 } from '../constants';
 import {
   MONTENEGRO_MARKETPLACE_CITIES,
@@ -872,7 +876,49 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
       if (missionError) throw missionError;
       if (!newMission?.id) throw new Error('Failed to create mission');
 
-      // Attempt wallet payment immediately (if funded). If insufficient, mission remains pending_payment.
+      // City pin: Stripe Checkout for Scout Stake (see EDGE_FN_STRIPE_MISSION_CHECKOUT — implement in Supabase Edge Functions).
+      if (taskType === 'city') {
+        const { data: checkoutPayload, error: checkoutFnErr } = await supabase.functions.invoke(
+          EDGE_FN_STRIPE_MISSION_CHECKOUT,
+          {
+            body: {
+              mission_id: newMission.id,
+              amount_eur: SCOUT_STAKE_FEE_EGP,
+              success_url: `${window.location.origin}/?stripe_mission=success&mission_id=${encodeURIComponent(newMission.id)}`,
+              cancel_url: `${window.location.origin}/?stripe_mission=cancel`,
+            },
+          },
+        );
+
+        if (checkoutFnErr) {
+          console.error('stripe mission checkout:', checkoutFnErr);
+          toast.error(t('stripeMissionCheckoutFailed'));
+          setOrderError(t('stripeMissionCheckoutFailed'));
+          await fetchProfileData();
+          return;
+        }
+
+        const checkoutUrl =
+          checkoutPayload &&
+          typeof checkoutPayload === 'object' &&
+          checkoutPayload !== null &&
+          'url' in checkoutPayload &&
+          typeof (checkoutPayload as { url?: unknown }).url === 'string'
+            ? (checkoutPayload as { url: string }).url
+            : null;
+
+        if (checkoutUrl) {
+          window.location.assign(checkoutUrl);
+          return;
+        }
+
+        toast.error(t('stripeMissionCheckoutFailed'));
+        setOrderError(t('stripeMissionCheckoutFailed'));
+        await fetchProfileData();
+        return;
+      }
+
+      // Home mission: pay from wallet (after Stripe top-up if needed).
       const { error: payErr } = await supabase.rpc('pay_mission_from_wallet', {
         p_mission_id: newMission.id,
       });
@@ -1187,12 +1233,12 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
         const fileExt = 'jpg';
         const safeFileName = `mission_${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
         const { error: uploadError } = await supabase.storage
-          .from('order-photos')
+          .from(STORAGE_BUCKET_ORDER_PHOTOS)
           .upload(safeFileName, fileToUpload, { upsert: false, contentType: 'image/jpeg' });
         if (uploadError) throw uploadError;
         const {
           data: { publicUrl },
-        } = supabase.storage.from('order-photos').getPublicUrl(safeFileName);
+        } = supabase.storage.from(STORAGE_BUCKET_ORDER_PHOTOS).getPublicUrl(safeFileName);
         uploadedUrls.push(publicUrl);
       }
       setProofProcessingImage(false);
@@ -1288,7 +1334,7 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
           const ext = isWebm ? 'webm' : 'mp4';
           const safeVideoName = `liveness_${proofJob.id}_${Date.now()}_${Math.random().toString(36).substring(2)}.${ext}`;
           const { error: videoUploadErr } = await supabase.storage
-            .from('liveness-videos')
+            .from(STORAGE_BUCKET_LIVENESS_VIDEOS)
             .upload(safeVideoName, livenessBlob, {
               upsert: false,
               contentType: livenessMimeType || 'video/webm',
@@ -1296,7 +1342,7 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
           if (videoUploadErr) throw videoUploadErr;
           const {
             data: { publicUrl: videoPublicUrl },
-          } = supabase.storage.from('liveness-videos').getPublicUrl(safeVideoName);
+          } = supabase.storage.from(STORAGE_BUCKET_LIVENESS_VIDEOS).getPublicUrl(safeVideoName);
           proofVideoUrl = videoPublicUrl;
         }
 
@@ -2044,7 +2090,7 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                 disabled={orderSubmitting}
                 className="animated-border-inner w-full rounded-full px-6 py-3 text-sm font-black uppercase tracking-[0.24em] transition-all text-white bg-[#020617] hover:brightness-110 disabled:cursor-wait active:scale-[0.98]"
               >
-                {orderSubmitting ? 'Processing...' : 'Submit Task & Pay'}
+                {orderSubmitting ? t('processing') : t('submitTaskAndPay')}
               </button>
             </div>
           </form>

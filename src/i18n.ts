@@ -109,6 +109,8 @@ const resources = {
       payInstantWithWallet: 'Pay instantly with wallet balance',
       insufficientWalletBalance: 'Insufficient wallet balance for this mission.',
       paymentWalletSuccess: 'Payment successful. Mission is live.',
+      stripeMissionCheckoutFailed:
+        'Could not start Stripe Checkout. Ensure the edge function is deployed and Stripe is in Test mode.',
       garbageReportTitle: 'Garbage report (after photos + video)',
       garbageReportAfterPhotosHelp:
         'After photos: use the camera (environment). Images are compressed before upload.',
@@ -412,6 +414,8 @@ const resources = {
       payInstantWithWallet: 'ادفع فورًا من رصيد المحفظة',
       insufficientWalletBalance: 'رصيد المحفظة غير كافٍ لهذه المهمة.',
       paymentWalletSuccess: 'تم الدفع بنجاح. المهمة نشطة.',
+      stripeMissionCheckoutFailed:
+        'تعذّر بدء Stripe Checkout. تأكد من نشر الدالة واستخدام وضع الاختبار.',
       garbageReportTitle: 'تقرير النفايات (صور بعد + فيديو)',
       garbageReportAfterPhotosHelp: 'صور «بعد»: استخدم الكاميرا (الخلفية). تُضغط الصور قبل الرفع.',
       garbageReportVideoHelp: 'إثبات فيديو: لا يقل عن ثانيتين، بالتقاط من كاميرا الخلفية.',
@@ -691,6 +695,8 @@ const resources = {
       payInstantWithWallet: 'Мгновенная оплата с баланса кошелька',
       insufficientWalletBalance: 'Недостаточно средств на кошельке для этой миссии.',
       paymentWalletSuccess: 'Оплата прошла успешно. Миссия активна.',
+      stripeMissionCheckoutFailed:
+        'Не удалось открыть Stripe Checkout. Проверьте Edge Function и тестовый режим Stripe.',
       garbageReportTitle: 'Отчёт об уборке (фото «после» + видео)',
       garbageReportAfterPhotosHelp:
         'Фото «после»: снимайте камерой (задняя). Перед загрузкой изображения сжимаются.',
@@ -981,6 +987,8 @@ const resources = {
       payInstantWithWallet: 'Sofort mit Wallet-Guthaben bezahlen',
       insufficientWalletBalance: 'Wallet-Guthaben reicht für diese Mission nicht.',
       paymentWalletSuccess: 'Zahlung erfolgreich. Mission ist live.',
+      stripeMissionCheckoutFailed:
+        'Stripe Checkout konnte nicht gestartet werden. Edge Function prüfen und Testmodus nutzen.',
       garbageReportTitle: 'Müllbericht (Nachher-Fotos + Video)',
       garbageReportAfterPhotosHelp:
         'Nachher-Fotos: Kamera (Umgebung) nutzen. Bilder werden vor dem Upload komprimiert.',
@@ -1258,6 +1266,8 @@ const resources = {
       payInstantWithWallet: 'Paga subito con il saldo del wallet',
       insufficientWalletBalance: 'Saldo wallet insufficiente per questa missione.',
       paymentWalletSuccess: 'Pagamento riuscito. Missione attiva.',
+      stripeMissionCheckoutFailed:
+        'Impossibile avviare Stripe Checkout. Verifica la Edge Function e la modalità Test.',
       garbageReportTitle: 'Rifiuti segnalati (foto dopo + video)',
       garbageReportAfterPhotosHelp:
         'Foto «dopo»: usa la fotocamera (ambiente). Le immagini vengono compresse prima dell’upload.',
@@ -1536,6 +1546,8 @@ const resources = {
       payInstantWithWallet: 'Pagar al instante con saldo del monedero',
       insufficientWalletBalance: 'Saldo insuficiente en el monedero para esta misión.',
       paymentWalletSuccess: 'Pago correcto. La misión está activa.',
+      stripeMissionCheckoutFailed:
+        'No se pudo iniciar Stripe Checkout. Despliega la función Edge y usa modo Test.',
       garbageReportTitle: 'Informe de basura (fotos después + vídeo)',
       garbageReportAfterPhotosHelp:
         'Fotos «después»: usa la cámara (entorno). Las imágenes se comprimen antes de subirlas.',

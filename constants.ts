@@ -46,7 +46,7 @@ export const INTERNAL_CURRENCY = 'EUR' as const;
  *
  * NOTE: Kept old constant name for compatibility during refactor.
  */
-export const SCOUT_STAKE_FEE_EGP = 5;
+export const SCOUT_STAKE_FEE_EGP = 1;
 
 /** Anti-fraud: repeated micro-tx at or below this EUR amount (wallet is EUR). */
 export const SMALL_CARDING_EGP_MAX = 10;
@@ -65,6 +65,18 @@ export const MIN_SIZE = 10;
 export const MAX_SIZE = 10000;
 
 export const MAX_PHOTOS = 10;
+
+/** Supabase Storage bucket for mission proof / order photos (create this exact name in the dashboard). */
+export const STORAGE_BUCKET_ORDER_PHOTOS = 'order-photos';
+
+/** Supabase Storage bucket for worker liveness video proofs. */
+export const STORAGE_BUCKET_LIVENESS_VIDEOS = 'liveness-videos';
+
+/**
+ * Edge function (to be implemented) that returns `{ url: string }` for Stripe Checkout (Test/Live).
+ * Session should charge {@link SCOUT_STAKE_FEE_EGP} EUR for city-pin activation.
+ */
+export const EDGE_FN_STRIPE_MISSION_CHECKOUT = 'stripe-mission-checkout';
 
 export const translations: Record<string, Record<string, string>> = {
   en: {

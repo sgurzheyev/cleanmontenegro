@@ -10,6 +10,7 @@ import {
   CITY_MIN_PRICE,
   CITY_MAX_PRICE,
   HOME_MAX_PRICE,
+  DISPLAY_CURRENCY_SUFFIX,
 } from '../constants';
 import {
   descriptionLooksLikeContactOrPhone,
@@ -310,7 +311,7 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
           onClick={() => void onCityPin()}
           className="py-4 bg-[#39FF14]/10 border border-[#39FF14]/40 text-[#39FF14] rounded-xl font-black italic hover:bg-[#39FF14] hover:text-black transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          CITY PIN ({SCOUT_STAKE_FEE_EGP} EGP)
+          CITY PIN ({SCOUT_STAKE_FEE_EGP} {DISPLAY_CURRENCY_SUFFIX})
         </button>
 
         <button
@@ -319,7 +320,7 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
           onClick={() => void onHomeMission()}
           className="py-4 bg-[#f8ff14]/10 border border-[#f8ff14]/40 text-[#f8ff14] rounded-xl font-black italic hover:bg-[#f8ff14] hover:text-black transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          HOME ({HOME_MIN_PRICE}+ EGP)
+          HOME ({HOME_MIN_PRICE}+ {DISPLAY_CURRENCY_SUFFIX})
         </button>
       </div>
 
