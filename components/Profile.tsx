@@ -847,16 +847,21 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
 
     try {
       setOrderSubmitting(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        setOrderError('You must be signed in to create a task.');
+      // Use getUser() (not getSession) so the JWT is validated; RLS uses auth.uid() and
+      // mobile WebViews often have a cached session that must be verified before insert.
+      const {
+        data: { user: authUser },
+        error: authUserError,
+      } = await supabase.auth.getUser();
+      const creatorId = authUser?.id ?? null;
+      if (authUserError || !creatorId) {
+        setOrderError(t('createTaskSignIn'));
         return;
       }
 
-      const creatorId = session.user.id;
-
       // Stripe-only (Montenegro): create mission as pending_payment and pay from wallet.
       // Users top up their wallet with Stripe first (Profile → Top Up).
+      // RLS: WITH CHECK should use creator_id = auth.uid() — creator_id must match the validated JWT user.
       const { data: newMission, error: missionError } = await supabase
         .from('missions')
         .insert({
