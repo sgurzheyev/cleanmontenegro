@@ -17,7 +17,7 @@ import {
   HOME_MAX_PRICE,
   CITY_MIN_PRICE,
   CITY_MAX_PRICE,
-  SCOUT_STAKE_FEE_EGP,
+  MISSION_STAKE_FEE_EUR,
   STORAGE_BUCKET_ORDER_PHOTOS,
   STORAGE_BUCKET_LIVENESS_VIDEOS,
   EDGE_FN_STRIPE_MISSION_CHECKOUT,
@@ -900,7 +900,7 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
           {
             body: {
               mission_id: missionId,
-              amount_eur: SCOUT_STAKE_FEE_EGP,
+              amount_eur: MISSION_STAKE_FEE_EUR,
               success_url: `${window.location.origin}/?stripe_mission=success&mission_id=${encodeURIComponent(missionId)}`,
               cancel_url: `${window.location.origin}/?stripe_mission=cancel`,
             },
@@ -935,16 +935,7 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
         return;
       }
 
-      // Home mission: pay from wallet (after Stripe top-up if needed).
-      const { error: payErr } = await supabase.rpc('pay_mission_from_wallet', {
-        p_mission_id: missionId,
-      });
-      if (payErr) {
-        toast.error(t('insufficientWalletBalance'));
-      } else {
-        toast.success(t('paymentWalletSuccess'));
-      }
-      await fetchProfileData();
+      // Redirect happens above on success.
     } catch (err) {
       console.error('Create task exception:', err);
       setOrderError(
@@ -1012,22 +1003,7 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
     }
   };
 
-  const payMissionFromWallet = async (job: Job) => {
-    try {
-      setPhantomPaymentActionId(job.id);
-      const { error } = await supabase.rpc('pay_mission_from_wallet', {
-        p_mission_id: job.id,
-      });
-      if (error) throw error;
-      toast.success(t('paymentWalletSuccess'));
-      await fetchProfileData();
-    } catch (e) {
-      console.error('payMissionFromWallet:', e);
-      toast.error(t('retryPaymentFailed'));
-    } finally {
-      setPhantomPaymentActionId(null);
-    }
-  };
+  // payMissionFromWallet removed: direct Stripe Checkout only.
 
   const handleAcceptBid = async (job: Job, bid: Bid) => {
     if (!enforceMissionStatusCooldown()) return;
@@ -2059,8 +2035,8 @@ const Profile: React.FC<ProfileProps> = ({ isOpen, onClose, session: _session, o
                 {taskType === 'city' && (
                   <p className="mt-2 text-[10px] text-slate-500 leading-relaxed">
                     {isRu
-                      ? `Создание городской метки стоит ${formatEgp(SCOUT_STAKE_FEE_EGP)} (Scout Stake). Цель — ваш краудфандинговый сбор.`
-                      : `Creating a public pin costs ${formatEgp(SCOUT_STAKE_FEE_EGP)} (Scout Stake). The target is just your crowdfunding goal.`}
+                      ? `Создание городской метки стоит ${formatEgp(MISSION_STAKE_FEE_EUR)}. Цель — ваш краудфандинговый сбор.`
+                      : `Creating a public pin costs ${formatEgp(MISSION_STAKE_FEE_EUR)}. The target is just your crowdfunding goal.`}
                   </p>
                 )}
               </div>

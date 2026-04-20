@@ -1,22 +1,22 @@
-// src/components/OrderForm.tsx — amounts are always EGP (Paymob charges EGP piastres; no USD conversion on this form).
+// src/components/OrderForm.tsx — Montenegro: direct Stripe EUR payments.
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../services/supabase';
-import { profileWalletBalanceEgp } from '../src/lib/walletCredit';
 import { floorEgp } from '../src/lib/integerEgpInput';
 import {
   HOME_MIN_PRICE,
-  SCOUT_STAKE_FEE_EGP,
+  MISSION_STAKE_FEE_EUR,
   CITY_MIN_PRICE,
   CITY_MAX_PRICE,
   HOME_MAX_PRICE,
   DISPLAY_CURRENCY_SUFFIX,
+  EDGE_FN_STRIPE_MISSION_CHECKOUT,
 } from '../constants';
 import {
   descriptionLooksLikeContactOrPhone,
   validateMissionDescription,
 } from '../src/lib/missionContentPolicy';
-import { formatEgp } from '../src/lib/formatMoney';
+import { formatEur } from '../src/lib/formatMoney';
 import { parseIntegerEgpFromInput, sanitizeIntegerEgpDigits } from '../src/lib/integerEgpInput';
 
 interface Props {
@@ -34,7 +34,6 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
   const [shortDescription, setShortDescription] = useState('');
   /** User-entered mission price / goal in EGP only */
   const [amountEgp, setAmountEgp] = useState('');
-  const [walletEgp, setWalletEgp] = useState<number | null>(null);
   const [walletPaySuccess, setWalletPaySuccess] = useState(false);
 
   const contactWarning = useMemo(
@@ -46,30 +45,10 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
 
   const parseEgp = (): number => parseIntegerEgpFromInput(amountEgp);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        if (!cancelled) setWalletEgp(null);
-        return;
-      }
-      const { data: p } = await supabase
-        .from('profiles')
-        .select('wallet_balance')
-        .eq('id', session.user.id)
-        .maybeSingle();
-      if (!cancelled) setWalletEgp(profileWalletBalanceEgp(p?.wallet_balance));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Wallet/balance removed: direct Stripe Checkout only.
 
-  /** Stripe-only (Montenegro): create pending_payment mission, then pay from wallet. */
-  const startWalletMission = async (category: 'public' | 'home', egp: number) => {
+  /** Direct Stripe (Montenegro): create pending_payment mission, then redirect to Stripe Checkout. */
+  const startStripeMission = async (category: 'public' | 'home', egp: number) => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -85,9 +64,10 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
     if (onOrderStarted) onOrderStarted();
 
     try {
-      const { data: newMission, error: missionErr } = await supabase
-        .from('missions')
-        .insert({
+      const missionId = globalThis.crypto?.randomUUID?.() ?? `m_${Date.now()}`;
+      const { error: missionErr } = await supabase.from('missions').insert(
+        {
+          id: missionId,
           creator_id: userId,
           category,
           amount_target: Math.floor(Math.max(0, egp)),
@@ -96,19 +76,29 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
           status: 'pending_payment',
           description: shortDescription.trim() || null,
           photo_urls: [],
-        })
-        .select('id')
-        .single();
+        } as any,
+        ({ returning: 'minimal' } as any),
+      );
       if (missionErr) throw missionErr;
-      if (!newMission?.id) throw new Error('No mission id');
 
-      const { error: rpcErr } = await supabase.rpc('pay_mission_from_wallet', {
-        p_mission_id: newMission.id,
-      });
-      if (rpcErr) throw rpcErr;
+      const { data: checkoutPayload, error: checkoutFnErr } = await supabase.functions.invoke(
+        EDGE_FN_STRIPE_MISSION_CHECKOUT,
+        { body: { missionId } },
+      );
+      if (checkoutFnErr) throw checkoutFnErr;
+      const checkoutUrl =
+        checkoutPayload &&
+        typeof checkoutPayload === 'object' &&
+        checkoutPayload !== null &&
+        'url' in checkoutPayload &&
+        typeof (checkoutPayload as { url?: unknown }).url === 'string'
+          ? (checkoutPayload as { url: string }).url
+          : null;
+      if (!checkoutUrl) throw new Error(t('stripeMissionCheckoutFailed'));
 
+      window.location.assign(checkoutUrl);
       setWalletPaySuccess(true);
-      setWalletEgp((w) => (w == null ? w : Math.max(0, w - floorEgp(egp))));
+      return;
     } catch (error: unknown) {
       console.error(error);
       alert(error instanceof Error ? error.message : t('retryPaymentFailed'));
@@ -119,7 +109,7 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
 
   // Legacy Paymob flow removed (Stripe-only).
   const startPaymobMission = async (category: 'public' | 'home', egp: number) => {
-    await startWalletMission(category, egp);
+    await startStripeMission(category, egp);
   };
 
   const onCityPin = async () => {
@@ -142,7 +132,7 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
     }
 
     const ok = window.confirm(
-      t('cityPinScoutStakeConfirm', { amount: formatEgp(SCOUT_STAKE_FEE_EGP) })
+      t('cityPinScoutStakeConfirm', { amount: formatEur(MISSION_STAKE_FEE_EUR) })
     );
     if (!ok) return;
 
@@ -189,17 +179,12 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
       alert(t('cityPriceRangeEgp', { min: CITY_MIN_PRICE, max: CITY_MAX_PRICE }));
       return;
     }
-    if (walletEgp == null || walletEgp < egp) {
-      alert(t('insufficientWalletBalance'));
-      return;
-    }
-
     const ok = window.confirm(
-      t('cityPinScoutStakeConfirm', { amount: formatEgp(SCOUT_STAKE_FEE_EGP) })
+      t('cityPinScoutStakeConfirm', { amount: formatEur(MISSION_STAKE_FEE_EUR) })
     );
     if (!ok) return;
 
-    await startWalletMission('public', egp);
+    await startStripeMission('public', egp);
   };
 
   const onHomeMissionWallet = async () => {
@@ -220,25 +205,12 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
       alert(t('homePriceRangeEgp', { min: HOME_MIN_PRICE, max: HOME_MAX_PRICE }));
       return;
     }
-    if (walletEgp == null || walletEgp < egp) {
-      alert(t('insufficientWalletBalance'));
-      return;
-    }
-
-    await startWalletMission('home', egp);
+    await startStripeMission('home', egp);
   };
 
   const egpPreview = parseEgp();
-  const canWalletCity =
-    walletEgp !== null &&
-    egpPreview >= CITY_MIN_PRICE &&
-    egpPreview <= CITY_MAX_PRICE &&
-    walletEgp >= egpPreview;
-  const canWalletHome =
-    walletEgp !== null &&
-    egpPreview >= HOME_MIN_PRICE &&
-    egpPreview <= HOME_MAX_PRICE &&
-    walletEgp >= egpPreview;
+  const canWalletCity = false;
+  const canWalletHome = false;
 
   const descriptionInvalid = shortDescription.trim().length > 0 && !policyCheck.ok;
   const policyRejectText = policyCheck.ok === false ? policyCheck.error : null;
@@ -311,7 +283,7 @@ const OrderForm: React.FC<Props> = ({ selectedLocation, onOrderStarted }) => {
           onClick={() => void onCityPin()}
           className="py-4 bg-[#39FF14]/10 border border-[#39FF14]/40 text-[#39FF14] rounded-xl font-black italic hover:bg-[#39FF14] hover:text-black transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          CITY PIN ({SCOUT_STAKE_FEE_EGP} {DISPLAY_CURRENCY_SUFFIX})
+          CITY PIN ({MISSION_STAKE_FEE_EUR} {DISPLAY_CURRENCY_SUFFIX})
         </button>
 
         <button

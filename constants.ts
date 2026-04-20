@@ -46,10 +46,14 @@ export const INTERNAL_CURRENCY = 'EUR' as const;
  *
  * NOTE: Kept old constant name for compatibility during refactor.
  */
-export const SCOUT_STAKE_FEE_EGP = 1;
+export const MISSION_STAKE_FEE_EUR = 1;
+/** @deprecated Back-compat alias (remove once all call-sites updated). */
+export const SCOUT_STAKE_FEE_EGP = MISSION_STAKE_FEE_EUR;
 
 /** Anti-fraud: repeated micro-tx at or below this EUR amount (wallet is EUR). */
-export const SMALL_CARDING_EGP_MAX = 10;
+export const SMALL_CARDING_EUR_MAX = 10;
+/** @deprecated Back-compat alias (remove once all call-sites updated). */
+export const SMALL_CARDING_EGP_MAX = SMALL_CARDING_EUR_MAX;
 
 /** Display suffix for amounts in UI (Euro). */
 export const DISPLAY_CURRENCY_SUFFIX = 'EUR';

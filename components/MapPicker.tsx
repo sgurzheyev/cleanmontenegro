@@ -31,7 +31,6 @@ import {
   EDGE_FN_STRIPE_MISSION_CHECKOUT,
 } from '../constants';
 import { formatEgp, formatEgpDigits } from '../src/lib/formatMoney';
-import { profileWalletBalanceEgp } from '../src/lib/walletCredit';
 import { floorEgp, parseIntegerEgpFromInput, sanitizeIntegerEgpDigits } from '../src/lib/integerEgpInput';
 import ModeratedMissionPhoto from './ModeratedMissionPhoto';
 
@@ -651,10 +650,6 @@ const MapPicker: React.FC<MapPickerProps> = ({
   const alertedBuildingIdsRef = React.useRef<Set<number | string>>(new Set());
   const [buildingPopup, setBuildingPopup] = useState<{ lng: number; lat: number } | null>(null);
   const orderFormRef = React.useRef<HTMLFormElement>(null);
-  /** When true, next home submit uses wallet payment. */
-  const orderFormWalletPayRef = React.useRef(false);
-  /** Creator wallet (EUR) for "pay from wallet" on home missions. */
-  const [creatorWalletEgp, setCreatorWalletEgp] = useState<number | null>(null);
   const [viewState, setViewState] = useState({
     latitude: 42.0932,
     longitude: 19.0981,
@@ -737,28 +732,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
     }
   }, [orderSubmitting]);
 
-  useEffect(() => {
-    if (!taskTypeSelected) return;
-    let cancelled = false;
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        if (!cancelled) setCreatorWalletEgp(null);
-        return;
-      }
-      const { data: p } = await supabase
-        .from('profiles')
-        .select('wallet_balance')
-        .eq('id', session.user.id)
-        .maybeSingle();
-      if (!cancelled) setCreatorWalletEgp(profileWalletBalanceEgp(p?.wallet_balance));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [taskTypeSelected]);
+  // Wallet/balance removed: direct Stripe Checkout only.
 
   // Bidding modal state
   const [bidJob, setBidJob] = useState<JobOnMap | null>(null);
@@ -907,32 +881,48 @@ const MapPicker: React.FC<MapPickerProps> = ({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) return;
 
-      // Stripe-only (Montenegro): missions are funded via wallet.
-      // Create as pending_payment, then attempt pay-from-wallet (if funded).
-      const { data: newMission, error: missionErr } = await supabase
+      const missionId = globalThis.crypto?.randomUUID?.() ?? `m_${Date.now()}`;
+      const { error: missionErr } = await supabase
         .from('missions')
-        .insert({
-          creator_id: session.user.id,
-          category: payload.taskType === 'city' ? 'public' : 'home',
-          amount_target: floorEgp(payload.amount),
-          location_lat: payload.location.lat,
-          location_lng: payload.location.lng,
-          status: 'pending_payment',
-          description: payload.description || null,
-          photo_urls:
-            payload.creatorPhotos && payload.creatorPhotos.length > 0 ? payload.creatorPhotos : [],
-        })
-        .select('id')
-        .single();
+        .insert(
+          {
+            id: missionId,
+            creator_id: session.user.id,
+            category: payload.taskType === 'city' ? 'public' : 'home',
+            amount_target: floorEgp(payload.amount),
+            location_lat: payload.location.lat,
+            location_lng: payload.location.lng,
+            status: 'pending_payment',
+            description: payload.description || null,
+            photo_urls:
+              payload.creatorPhotos && payload.creatorPhotos.length > 0 ? payload.creatorPhotos : [],
+          } as any,
+          ({ returning: 'minimal' } as any),
+        );
       if (missionErr) throw missionErr;
-      if (!newMission?.id) throw new Error('Mission creation failed');
 
-      const { error: payErr } = await supabase.rpc('pay_mission_from_wallet', {
-        p_mission_id: newMission.id,
-      });
-      if (payErr) {
-        throw new Error(t('insufficientWalletBalance'));
+      const { data: checkoutPayload, error: checkoutFnErr } = await supabase.functions.invoke(
+        EDGE_FN_STRIPE_MISSION_CHECKOUT,
+        { body: { missionId } },
+      );
+      if (checkoutFnErr) {
+        console.error('Stripe Edge Function Error:', checkoutFnErr);
+        throw new Error(t('stripeMissionCheckoutFailed'));
       }
+      const checkoutUrl =
+        checkoutPayload &&
+        typeof checkoutPayload === 'object' &&
+        checkoutPayload !== null &&
+        'url' in checkoutPayload &&
+        typeof (checkoutPayload as { url?: unknown }).url === 'string'
+          ? (checkoutPayload as { url: string }).url
+          : null;
+      if (!checkoutUrl) {
+        console.error('Stripe Edge Function Error:', checkoutPayload);
+        throw new Error(t('stripeMissionCheckoutFailed'));
+      }
+
+      window.location.assign(checkoutUrl);
     },
     [t]
   );
@@ -1960,47 +1950,6 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
       // 3) For Home missions: wallet instant pay (Stripe-only top-ups)
       if (taskType === 'home') {
-        const payFromWallet = orderFormWalletPayRef.current;
-        orderFormWalletPayRef.current = false;
-
-        if (payFromWallet) {
-          const { data: newMission, error: missionErr } = await supabase
-            .from('missions')
-            .insert({
-              creator_id: session.user.id,
-              category: 'home',
-              amount_target: floorEgp(amount),
-              location_lat: selectedLocation.lat,
-              location_lng: selectedLocation.lng,
-              status: 'pending_payment',
-              description: descriptionToSave || null,
-              photo_urls: creatorPhotoUrls && creatorPhotoUrls.length > 0 ? creatorPhotoUrls : [],
-            })
-            .select('id')
-            .single();
-          if (missionErr) throw missionErr;
-          if (!newMission?.id) throw new Error('No mission id returned');
-          const { error: rpcErr } = await supabase.rpc('pay_mission_from_wallet', {
-            p_mission_id: newMission.id,
-          });
-          if (rpcErr) throw rpcErr;
-
-          toast.success(t('paymentWalletSuccess'));
-          window.dispatchEvent(new CustomEvent('paymentSuccess'));
-          setOrderSuccess(t('paymentWalletSuccess'));
-          setOrderAmount('');
-          setOrderDescription('');
-          setOrderPhotos([]);
-          setDescriptionPolicyError(null);
-          setPhotoVerification({ verifying: false, allApproved: true, hasRejected: false });
-          setSelectedLocation(null);
-          setCreatorWalletEgp((w) =>
-            w == null ? w : Math.max(0, w - floorEgp(amount))
-          );
-          await fetchMissions();
-          return;
-        }
-
         await executePaymentFlow({
           amount,
           taskType,
@@ -2020,13 +1969,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
     }
   };
 
-  const showHomeWalletPay = useMemo(() => {
-    if (taskType !== 'home') return false;
-    const amt = floorEgp(parseIntegerEgpFromInput(orderAmount));
-    if (amt < HOME_MIN_PRICE || amt > HOME_MAX_PRICE) return false;
-    if (creatorWalletEgp === null) return false;
-    return creatorWalletEgp >= amt;
-  }, [taskType, orderAmount, creatorWalletEgp]);
+  const showHomeWalletPay = false;
 
   const { missionTrustBlocked, missionTrustShortfallEgp } = useMemo(() => {
     if (!showBidInput || !selectedMission || workerTrustSnapshot === null) {
@@ -3087,28 +3030,6 @@ const MapPicker: React.FC<MapPickerProps> = ({
               </div>
 
               <div className="mt-auto pb-[env(safe-area-inset-bottom)]">
-              {showHomeWalletPay && (
-                <div className="w-full mt-2 rounded-full animated-border-home">
-                  <button
-                    type="button"
-                    disabled={
-                      orderSubmitting ||
-                      uploadingProof ||
-                      !selectedLocation ||
-                      !!descriptionPolicyError ||
-                      (orderPhotos.length > 0 && photoVerification.verifying)
-                    }
-                    onClick={() => {
-                      orderFormWalletPayRef.current = true;
-                      orderFormRef.current?.requestSubmit();
-                    }}
-                    className="animated-border-inner w-full rounded-full px-6 py-3 text-sm font-black uppercase tracking-[0.2em] transition-all text-black bg-gradient-to-r from-cyan-300 to-emerald-400 border border-cyan-400/60 hover:brightness-110 shadow-[0_0_22px_rgba(34,211,238,0.35)] disabled:cursor-not-allowed disabled:opacity-50 active:scale-95"
-                  >
-                    {t('payInstantWithWallet')}
-                  </button>
-                </div>
-              )}
-
               <div
                 className={`w-full mt-1 rounded-full ${taskType === 'city' ? 'animated-border-city' : 'animated-border-home'} ${
                   orderSubmitting ||
@@ -3819,8 +3740,8 @@ const MapPicker: React.FC<MapPickerProps> = ({
                             .select('wallet_balance, frozen_balance')
                             .eq('id', session.user.id)
                             .maybeSingle();
-                          const wb = profileWalletBalanceEgp(p?.wallet_balance);
-                          const fr = profileWalletBalanceEgp(p?.frozen_balance);
+                          const wb = Number(p?.wallet_balance ?? 0);
+                          const fr = Number(p?.frozen_balance ?? 0);
                           const target = Number(selectedMission.amount_target ?? coFundEgp);
                           const sec = workerCanSecureMissionDeposit(
                             wb,
@@ -3878,8 +3799,8 @@ const MapPicker: React.FC<MapPickerProps> = ({
                             .select('wallet_balance, frozen_balance')
                             .eq('id', session.user.id)
                             .maybeSingle();
-                          const wb = profileWalletBalanceEgp(p?.wallet_balance);
-                          const fr = profileWalletBalanceEgp(p?.frozen_balance);
+                          const wb = Number(p?.wallet_balance ?? 0);
+                          const fr = Number(p?.frozen_balance ?? 0);
                           const target = Number(selectedMission.amount_target ?? crowdfundBidAmount);
                           const sec = workerCanSecureMissionDeposit(
                             wb,
