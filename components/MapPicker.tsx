@@ -2290,6 +2290,34 @@ const MapPicker: React.FC<MapPickerProps> = ({
     });
   }, []);
 
+  const hudFlowLineGeoJSON = useMemo(() => {
+    // Mission-related HUD line: connect draft/selected point to selected mission.
+    const a = selectedLocation;
+    const m = selectedMission;
+    if (!a || !m) {
+      return { type: 'FeatureCollection', features: [] as any[] } as const;
+    }
+    if (typeof m.location_lat !== 'number' || typeof m.location_lng !== 'number') {
+      return { type: 'FeatureCollection', features: [] as any[] } as const;
+    }
+    return {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: { kind: 'hud-flow' },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [a.lng, a.lat],
+              [m.location_lng, m.location_lat],
+            ],
+          },
+        },
+      ],
+    } as any;
+  }, [selectedLocation, selectedMission]);
+
   const handleDollarAction = useCallback(() => {
     setDashboardExpanded(false);
     if (activeWorkerMission) {
@@ -2319,8 +2347,8 @@ const MapPicker: React.FC<MapPickerProps> = ({
           const map = e?.target;
           if (!map) return;
 
-          // Atmosphere: wait for style to fully load before applying fog/terrain.
-          const applyAtmosphereAndTerrain = () => {
+          // Cinematic Cyberpunk Realism: apply ONLY on style.load.
+          const applyCinematicDawn = () => {
             try {
               if (!map.getSource('mapbox-dem')) {
                 map.addSource('mapbox-dem', {
@@ -2333,33 +2361,46 @@ const MapPicker: React.FC<MapPickerProps> = ({
               map.setTerrain?.({ source: 'mapbox-dem', exaggeration: 1.5 });
 
               map.setFog?.({
-                // Cyberpunk night haze: deep navy → violet horizon glow.
+                // Atmosphere & fog: midnight blue with sunrise highlights.
                 range: [0.6, 10],
-                color: '#070A12',
-                'horizon-blend': 0.22,
-                'high-color': '#0B1022',
+                color: '#0b0e14',
+                'horizon-blend': 0.1,
+                'high-color': '#ff9e64',
                 'space-color': '#02030A',
                 'star-intensity': 0.25,
               });
             } catch {
               // Non-fatal: custom styles / older mapbox runtimes may not support terrain/fog.
             }
+
+            // Sunrise lighting (Standard basemap config if available).
+            try {
+              map.setConfigProperty?.('basemap', 'lightPreset', 'dawn');
+            } catch {
+              /* ignore */
+            }
+
+            // Global light: warm sunrise highlights + long shadows.
+            try {
+              map.setLight?.(
+                {
+                  anchor: 'map',
+                  color: '#ff9e64',
+                  intensity: 0.5,
+                  // [radial, azimuthal, polar] — azimuth aligns with sunrise direction.
+                  position: [1.5, 120, 60],
+                },
+                { duration: 650, delay: 0 }
+              );
+            } catch {
+              /* ignore */
+            }
           };
 
           if (map.isStyleLoaded?.()) {
-            applyAtmosphereAndTerrain();
-          } else {
-            // styledata can fire multiple times; we only need to apply once.
-            map.once?.('styledata', applyAtmosphereAndTerrain);
+            applyCinematicDawn();
           }
-
-          const hour = new Date().getHours();
-          const isNight = hour >= 18 || hour < 6;
-          try {
-            map.setConfigProperty?.('basemap', 'lightPreset', isNight ? 'night' : 'day');
-          } catch {
-            /* Custom vector style may not expose Standard basemap config */
-          }
+          map.on?.('style.load', applyCinematicDawn);
 
           const style = map.getStyle?.();
           const waterLikeLayers = (style?.layers || []).filter(
@@ -2387,6 +2428,8 @@ const MapPicker: React.FC<MapPickerProps> = ({
               if (layer.type !== 'hillshade') continue;
               try {
                 map.setPaintProperty(layer.id, 'hillshade-accent-color', '#64748b'); // cool blue-grey
+                map.setPaintProperty(layer.id, 'hillshade-illumination-direction', 120);
+                map.setPaintProperty(layer.id, 'hillshade-illumination-anchor', 'map');
               } catch {
                 // ignore
               }
@@ -2496,8 +2539,23 @@ const MapPicker: React.FC<MapPickerProps> = ({
                     '#ff2d2d',
                     ['boolean', ['feature-state', 'hover'], false],
                     '#00ffff',
-                    '#222',
+                    [
+                      'interpolate',
+                      ['linear'],
+                      ['coalesce', ['get', 'height'], 0],
+                      0,
+                      '#10131c',
+                      60,
+                      '#161b26',
+                      140,
+                      '#20283a',
+                      260,
+                      '#2f3b52',
+                    ],
                   ] as any,
+                  // Emissive-ish realism: brighter tops + deeper corners.
+                  'fill-extrusion-vertical-gradient': true as any,
+                  'fill-extrusion-ambient-occlusion-intensity': 0.8 as any,
                   'fill-extrusion-height': ['get', 'height'],
                   'fill-extrusion-base': ['get', 'min_height'],
                   'fill-extrusion-opacity': 0.8,
@@ -2587,6 +2645,41 @@ const MapPicker: React.FC<MapPickerProps> = ({
               'line-color': '#00ffff',
               'line-width': 1.5,
               'line-opacity': 0.6,
+            }}
+          />
+        </Source>
+
+        {/* Neon flow line (HUD): draft/selected point -> selected mission */}
+        <Source id="hud-flow-line" type="geojson" data={hudFlowLineGeoJSON}>
+          <Layer
+            id="hud-flow-line-glow"
+            type="line"
+            source="hud-flow-line"
+            filter={['==', ['get', 'kind'], 'hud-flow']}
+            layout={{
+              'line-cap': 'round',
+              'line-join': 'round',
+            }}
+            paint={{
+              'line-color': '#22c55e',
+              'line-width': 6,
+              'line-opacity': 0.35,
+              'line-blur': 2.2,
+            }}
+          />
+          <Layer
+            id="hud-flow-line-core"
+            type="line"
+            source="hud-flow-line"
+            filter={['==', ['get', 'kind'], 'hud-flow']}
+            layout={{
+              'line-cap': 'round',
+              'line-join': 'round',
+            }}
+            paint={{
+              'line-color': '#4ade80',
+              'line-width': 2,
+              'line-opacity': 0.9,
             }}
           />
         </Source>
