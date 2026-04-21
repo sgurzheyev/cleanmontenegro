@@ -1232,6 +1232,83 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
   const handleMapClickWithTowers = useCallback(
     (event: any) => {
+      // Building click (3D extrusions) — must win over generic map click.
+      try {
+        const map = mapRef.current?.getMap();
+        const pt = event?.point;
+        if (map && pt) {
+          const buildingHits = map.queryRenderedFeatures(pt as any, { layers: ['3d-buildings'] });
+          if (buildingHits && buildingHits.length > 0) {
+            const f0: any = buildingHits[0];
+            const id = f0?.id;
+            const lngLat = event?.lngLat;
+            const lng = Number(lngLat?.lng);
+            const lat = Number(lngLat?.lat);
+            if (id != null && Number.isFinite(lng) && Number.isFinite(lat)) {
+              // Clear previous selection
+              const prevSelected = selectedBuildingIdRef.current;
+              if (prevSelected != null && prevSelected !== id) {
+                try {
+                  map.setFeatureState(
+                    { source: 'cm-composite', sourceLayer: 'building', id: prevSelected },
+                    { selected: false }
+                  );
+                } catch {
+                  // ignore
+                }
+              }
+
+              selectedBuildingIdRef.current = id;
+              try {
+                map.setFeatureState(
+                  { source: 'cm-composite', sourceLayer: 'building', id },
+                  { selected: true }
+                );
+              } catch {
+                // ignore
+              }
+
+              const heightRaw = f0?.properties?.height;
+              const height = heightRaw == null ? null : Number(heightRaw);
+
+              setSelectedBuildingInfo({
+                building_id: String(id),
+                height: Number.isFinite(height as number) ? (height as number) : null,
+                lng,
+                lat,
+              });
+
+              // Anchor mission location to the building footprint.
+              setSelectedLocation({ lat, lng });
+              onLocationSelect(lat, lng);
+              return;
+            }
+          }
+        }
+      } catch {
+        // ignore — fall back to normal routing
+      }
+
+      // Ground click: clear any building selection.
+      try {
+        const map = mapRef.current?.getMap();
+        const prevSelected = selectedBuildingIdRef.current;
+        if (map && prevSelected != null) {
+          try {
+            map.setFeatureState(
+              { source: 'cm-composite', sourceLayer: 'building', id: prevSelected },
+              { selected: false }
+            );
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // ignore
+      }
+      selectedBuildingIdRef.current = null;
+      setSelectedBuildingInfo(null);
+
       // Cluster click → zoom in and expand the cluster.
       const clusterFeature = event?.features?.find(
         (x: { layer?: { id?: string } }) => x.layer?.id === 'missions-clusters'
@@ -1264,7 +1341,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
       }
       handleMapClick(event);
     },
-    [jobs, handleMarkerClick, handleMapClick]
+    [jobs, handleMarkerClick, handleMapClick, onLocationSelect]
   );
 
   // Permanently highlight buildings that have an active mission inside/adjacent.
@@ -1277,7 +1354,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
       const prev = alertedBuildingIdsRef.current;
       for (const id of prev) {
         try {
-          map.setFeatureState({ source: 'composite', sourceLayer: 'building', id }, { alert: false });
+          map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id }, { alert: false });
         } catch {
           // ignore
         }
@@ -1313,7 +1390,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
       for (const id of next) {
         try {
-          map.setFeatureState({ source: 'composite', sourceLayer: 'building', id }, { alert: true });
+          map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id }, { alert: true });
         } catch {
           // ignore
         }
@@ -2695,47 +2772,6 @@ const MapPicker: React.FC<MapPickerProps> = ({
           });
 
           map.on('mouseleave', '3d-buildings', clearHover);
-
-          map.on('click', '3d-buildings', (ev: any) => {
-            const f = ev?.features?.[0];
-            const id = f?.id;
-            if (id == null) return;
-
-            // Clear previous selection
-            const prevSelected = selectedBuildingIdRef.current;
-            if (prevSelected != null && prevSelected !== id) {
-              try {
-                map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id: prevSelected }, { selected: false });
-              } catch {
-                // ignore
-              }
-            }
-            selectedBuildingIdRef.current = id;
-            try {
-              map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id }, { selected: true });
-            } catch {
-              // ignore
-            }
-
-            const lngLat = ev?.lngLat;
-            const lng = Number(lngLat?.lng);
-            const lat = Number(lngLat?.lat);
-            if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
-
-            const heightRaw = f?.properties?.height;
-            const height = heightRaw == null ? null : Number(heightRaw);
-
-            const building_id = String(id);
-            setSelectedBuildingInfo({
-              building_id,
-              height: Number.isFinite(height as number) ? (height as number) : null,
-              lng,
-              lat,
-            });
-
-            // Mission payload foundation: anchor the mission to this building location.
-            setSelectedLocation({ lat, lng });
-          });
         }}
         mapStyle={customDarkStyle}
         mapboxAccessToken={MAPBOX_TOKEN}
