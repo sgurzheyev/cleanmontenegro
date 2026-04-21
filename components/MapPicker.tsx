@@ -3177,8 +3177,9 @@ const MapPicker: React.FC<MapPickerProps> = ({
           aria-hidden="false"
         >
           <div
-            className="absolute inset-0 bg-black/55 backdrop-blur-md pointer-events-none"
+            className="absolute inset-0 bg-black/55 backdrop-blur-md pointer-events-auto"
             aria-hidden
+            onClick={closeFormOverlay}
           />
           <div className={`pointer-events-auto relative z-[1] w-full max-w-xl flex flex-col h-full max-h-[85vh] animate-slide-up p-5 shadow-2xl ${PROFILE_GLASS_PANEL}`}>
             <form ref={orderFormRef} onSubmit={handleSubmit} className="flex flex-col h-full">
@@ -3236,11 +3237,15 @@ const MapPicker: React.FC<MapPickerProps> = ({
                     <input
                       type="text"
                       value={
-                        selectedLocation
-                          ? `${selectedLocation.lat.toFixed(6)}, ${selectedLocation.lng.toFixed(6)}`
-                          : ''
+                        selectedBuildingInfo
+                          ? `Здание выбрано: ${selectedBuildingInfo.building_id}`
+                          : selectedLocation
+                            ? `${selectedLocation.lat.toFixed(6)}, ${selectedLocation.lng.toFixed(6)}`
+                            : ''
                       }
+                      readOnly={!!selectedBuildingInfo}
                       onChange={(e) => {
+                        if (selectedBuildingInfo) return;
                         const value = e.target.value;
                         // allow manual editing; if looks like "lat, lng" try to parse
                         if (value.includes(',')) {
@@ -3271,6 +3276,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
                         }
                       }}
                       onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
+                        if (selectedBuildingInfo) return;
                         const text = e.clipboardData.getData('text');
                         if (text && text.includes(',')) {
                           e.preventDefault();
@@ -3335,6 +3341,11 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   {!selectedLocation && (
                     <p className="mt-1 text-[10px] text-amber-300 uppercase tracking-[0.18em]">
                       {t('tapMapToSetLocation')}
+                    </p>
+                  )}
+                  {selectedBuildingInfo && (
+                    <p className="mt-1 text-[10px] text-cyan-300/80 uppercase tracking-[0.18em]">
+                      Здание выбрано • {selectedBuildingInfo.lat.toFixed(6)}, {selectedBuildingInfo.lng.toFixed(6)}
                     </p>
                   )}
                 </div>
@@ -3990,7 +4001,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
                             <div className="flex-1 min-w-[120px] space-y-2">
                               <div className="flex items-center gap-2 rounded-xl border border-slate-600/80 bg-slate-950/50 px-2 py-1 focus-within:border-emerald-400/60">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/90 shrink-0">
-                                  EGP
+                                  EUR
                                 </span>
                                 <input
                                   type="text"
@@ -4000,7 +4011,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
                                   value={donateAmount}
                                   onChange={(e) => setDonateAmount(sanitizeIntegerEgpDigits(e.target.value))}
                                   className={`min-w-0 flex-1 bg-transparent border-0 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-0 tabular-nums`}
-                                  placeholder={t('customAmountEgpPlaceholder')}
+                                  placeholder={t('customAmountEurPlaceholder')}
                                 />
                               </div>
                               <button
