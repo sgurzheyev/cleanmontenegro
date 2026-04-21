@@ -2376,6 +2376,25 @@ const MapPicker: React.FC<MapPickerProps> = ({
             }
           }
 
+          // Hillshade enhancement: cooler limestone shadows (avoid warm/desert accents).
+          try {
+            const hillshadeLikeLayers = (style?.layers || []).filter(
+              (layer: any) =>
+                typeof layer?.id === 'string' &&
+                (layer.type === 'hillshade' || layer.id.toLowerCase().includes('hillshade'))
+            );
+            for (const layer of hillshadeLikeLayers) {
+              if (layer.type !== 'hillshade') continue;
+              try {
+                map.setPaintProperty(layer.id, 'hillshade-accent-color', '#64748b'); // cool blue-grey
+              } catch {
+                // ignore
+              }
+            }
+          } catch {
+            /* non-fatal */
+          }
+
           // Deep cyberpunk greenery wash (VERY low in hierarchy: above base, below heatmap/buildings/roads/markers).
           // Inserted below everything by anchoring it under `place_label` early in the stack.
           try {
@@ -2389,10 +2408,28 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   filter: [
                     'in',
                     ['get', 'class'],
-                    ['literal', ['wood', 'scrub', 'grass', 'park', 'cemetery', 'pitch']],
+                    ['literal', ['wood', 'scrub', 'grass', 'park', 'cemetery', 'pitch', 'rock', 'bare']],
                   ] as any,
                   paint: {
-                    'fill-color': '#27ae60',
+                    // CleanMontenegro landcover palette (Balkan limestone + evergreen).
+                    'fill-color': [
+                      'match',
+                      ['get', 'class'],
+                      // Mountains (rock/cliff / bare limestone)
+                      ['rock', 'bare'],
+                      '#9ca3af',
+                      // Forests (deep woods)
+                      ['wood', 'forest'],
+                      '#064e3b',
+                      // Parks / grass / sports pitches / cemeteries (lush green)
+                      ['grass', 'park', 'pitch', 'cemetery'],
+                      '#22c55e',
+                      // Scrub / vegetation (muted shrub green)
+                      ['scrub'],
+                      '#4d7c0f',
+                      // fallback
+                      '#14532d',
+                    ] as any,
                     'fill-opacity': 0.5,
                   },
                 } as any,
@@ -2412,7 +2449,22 @@ const MapPicker: React.FC<MapPickerProps> = ({
                     ['literal', ['wood', 'scrub', 'grass', 'park', 'cemetery', 'pitch']],
                   ] as any,
                   paint: {
-                    'fill-color': '#27ae60',
+                    // CleanMontenegro landuse palette (focus on greens).
+                    'fill-color': [
+                      'match',
+                      ['get', 'class'],
+                      // Forests (deep woods)
+                      ['wood', 'forest'],
+                      '#064e3b',
+                      // Parks / grass / sports pitches / cemeteries (lush green)
+                      ['grass', 'park', 'pitch', 'cemetery'],
+                      '#22c55e',
+                      // Scrub / vegetation (muted shrub green)
+                      ['scrub'],
+                      '#4d7c0f',
+                      // fallback
+                      '#14532d',
+                    ] as any,
                     'fill-opacity': 0.5,
                   },
                 } as any,
