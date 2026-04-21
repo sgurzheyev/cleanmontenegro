@@ -2358,7 +2358,8 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   maxzoom: 14,
                 });
               }
-              map.setTerrain?.({ source: 'mapbox-dem', exaggeration: 1.5 });
+              // Maximize 3D mountains (photorealistic HUD look).
+              map.setTerrain?.({ source: 'mapbox-dem', exaggeration: 2.0 });
 
               map.setFog?.({
                 // Atmosphere & fog: midnight blue with sunrise highlights.
@@ -2394,6 +2395,67 @@ const MapPicker: React.FC<MapPickerProps> = ({
               );
             } catch {
               /* ignore */
+            }
+
+            // Dark satellite base (aero-photo hack): moody, desaturated imagery below HUD elements.
+            try {
+              if (!map.getSource('cm-satellite')) {
+                map.addSource('cm-satellite', {
+                  type: 'raster',
+                  url: 'mapbox://mapbox.satellite',
+                  tileSize: 256,
+                } as any);
+              }
+              if (!map.getLayer('cm-satellite-dark')) {
+                map.addLayer(
+                  {
+                    id: 'cm-satellite-dark',
+                    type: 'raster',
+                    source: 'cm-satellite',
+                    paint: {
+                      'raster-saturation': -0.7,
+                      'raster-brightness-max': 0.25,
+                      'raster-brightness-min': 0.05,
+                      'raster-contrast': 0.4,
+                      'raster-opacity': 0.8,
+                    },
+                  } as any,
+                  // Keep satellite under roads/markers (very low in the stack).
+                  'place_label'
+                );
+              }
+            } catch {
+              /* non-fatal */
+            }
+
+            // Cinematic hillshade: soft gradients over DEM with sunrise highlights.
+            try {
+              const beforeId = map.getLayer?.('3d-buildings') ? '3d-buildings' : 'place_label';
+              if (!map.getLayer('cm-hillshade')) {
+                map.addLayer(
+                  {
+                    id: 'cm-hillshade',
+                    type: 'hillshade',
+                    source: 'mapbox-dem',
+                    paint: {
+                      'hillshade-shadow-color': '#0b0e14',
+                      'hillshade-highlight-color': '#ff9e64',
+                      'hillshade-accent-color': '#064e3b',
+                      'hillshade-illumination-direction': 120,
+                      'hillshade-illumination-anchor': 'map',
+                    },
+                  } as any,
+                  beforeId
+                );
+              } else {
+                map.setPaintProperty('cm-hillshade', 'hillshade-shadow-color', '#0b0e14');
+                map.setPaintProperty('cm-hillshade', 'hillshade-highlight-color', '#ff9e64');
+                map.setPaintProperty('cm-hillshade', 'hillshade-accent-color', '#064e3b');
+                map.setPaintProperty('cm-hillshade', 'hillshade-illumination-direction', 120);
+                map.setPaintProperty('cm-hillshade', 'hillshade-illumination-anchor', 'map');
+              }
+            } catch {
+              /* non-fatal */
             }
           };
 
@@ -2438,8 +2500,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
             /* non-fatal */
           }
 
-          // Deep cyberpunk greenery wash (VERY low in hierarchy: above base, below heatmap/buildings/roads/markers).
-          // Inserted below everything by anchoring it under `place_label` early in the stack.
+          // REMOVE HARD POLYGONS: keep layers (for optional tinting) but make them nearly transparent.
           try {
             if (!map.getLayer('greenery-landcover')) {
               map.addLayer(
@@ -2473,7 +2534,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
                       // fallback
                       '#14532d',
                     ] as any,
-                    'fill-opacity': 0.5,
+                    'fill-opacity': 0.02,
                   },
                 } as any,
                 'place_label'
@@ -2508,11 +2569,15 @@ const MapPicker: React.FC<MapPickerProps> = ({
                       // fallback
                       '#14532d',
                     ] as any,
-                    'fill-opacity': 0.5,
+                    'fill-opacity': 0.02,
                   },
                 } as any,
                 'place_label'
               );
+            } else {
+              // If layers already exist (style reload), force low opacity.
+              map.setPaintProperty('greenery-landcover', 'fill-opacity', 0.02);
+              map.setPaintProperty('greenery-landuse', 'fill-opacity', 0.02);
             }
           } catch {
             /* non-fatal */
