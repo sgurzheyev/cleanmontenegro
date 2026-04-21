@@ -2413,10 +2413,10 @@ const MapPicker: React.FC<MapPickerProps> = ({
                     type: 'raster',
                     source: 'cm-satellite',
                     paint: {
-                      'raster-saturation': -0.7,
-                      'raster-brightness-max': 0.25,
+                      'raster-saturation': 0.1,
+                      'raster-brightness-max': 0.45,
                       'raster-brightness-min': 0.05,
-                      'raster-contrast': 0.4,
+                      'raster-contrast': 0.2,
                       'raster-opacity': 0.8,
                     },
                   } as any,
@@ -2440,7 +2440,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
                     paint: {
                       'hillshade-shadow-color': '#0b0e14',
                       'hillshade-highlight-color': '#ff9e64',
-                      'hillshade-accent-color': '#064e3b',
+                      'hillshade-accent-color': '#022c22',
                       'hillshade-illumination-direction': 120,
                       'hillshade-illumination-anchor': 'map',
                     },
@@ -2450,7 +2450,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
               } else {
                 map.setPaintProperty('cm-hillshade', 'hillshade-shadow-color', '#0b0e14');
                 map.setPaintProperty('cm-hillshade', 'hillshade-highlight-color', '#ff9e64');
-                map.setPaintProperty('cm-hillshade', 'hillshade-accent-color', '#064e3b');
+                map.setPaintProperty('cm-hillshade', 'hillshade-accent-color', '#022c22');
                 map.setPaintProperty('cm-hillshade', 'hillshade-illumination-direction', 120);
                 map.setPaintProperty('cm-hillshade', 'hillshade-illumination-anchor', 'map');
               }
@@ -2489,7 +2489,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
             for (const layer of hillshadeLikeLayers) {
               if (layer.type !== 'hillshade') continue;
               try {
-                map.setPaintProperty(layer.id, 'hillshade-accent-color', '#64748b'); // cool blue-grey
+                map.setPaintProperty(layer.id, 'hillshade-accent-color', '#022c22'); // ultra-dark jungle green
                 map.setPaintProperty(layer.id, 'hillshade-illumination-direction', 120);
                 map.setPaintProperty(layer.id, 'hillshade-illumination-anchor', 'map');
               } catch {
@@ -2516,25 +2516,8 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   ] as any,
                   paint: {
                     // CleanMontenegro landcover palette (Balkan limestone + evergreen).
-                    'fill-color': [
-                      'match',
-                      ['get', 'class'],
-                      // Mountains (rock/cliff / bare limestone)
-                      ['rock', 'bare'],
-                      '#9ca3af',
-                      // Forests (deep woods)
-                      ['wood', 'forest'],
-                      '#064e3b',
-                      // Parks / grass / sports pitches / cemeteries (lush green)
-                      ['grass', 'park', 'pitch', 'cemetery'],
-                      '#22c55e',
-                      // Scrub / vegetation (muted shrub green)
-                      ['scrub'],
-                      '#4d7c0f',
-                      // fallback
-                      '#14532d',
-                    ] as any,
-                    'fill-opacity': 0.02,
+                    'fill-color': '#047857',
+                    'fill-opacity': 0.15,
                   },
                 } as any,
                 'place_label'
@@ -2554,30 +2537,18 @@ const MapPicker: React.FC<MapPickerProps> = ({
                   ] as any,
                   paint: {
                     // CleanMontenegro landuse palette (focus on greens).
-                    'fill-color': [
-                      'match',
-                      ['get', 'class'],
-                      // Forests (deep woods)
-                      ['wood', 'forest'],
-                      '#064e3b',
-                      // Parks / grass / sports pitches / cemeteries (lush green)
-                      ['grass', 'park', 'pitch', 'cemetery'],
-                      '#22c55e',
-                      // Scrub / vegetation (muted shrub green)
-                      ['scrub'],
-                      '#4d7c0f',
-                      // fallback
-                      '#14532d',
-                    ] as any,
-                    'fill-opacity': 0.02,
+                    'fill-color': '#047857',
+                    'fill-opacity': 0.15,
                   },
                 } as any,
                 'place_label'
               );
             } else {
               // If layers already exist (style reload), force low opacity.
-              map.setPaintProperty('greenery-landcover', 'fill-opacity', 0.02);
-              map.setPaintProperty('greenery-landuse', 'fill-opacity', 0.02);
+              map.setPaintProperty('greenery-landcover', 'fill-color', '#047857');
+              map.setPaintProperty('greenery-landcover', 'fill-opacity', 0.15);
+              map.setPaintProperty('greenery-landuse', 'fill-color', '#047857');
+              map.setPaintProperty('greenery-landuse', 'fill-opacity', 0.15);
             }
           } catch {
             /* non-fatal */
