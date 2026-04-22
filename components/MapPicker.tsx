@@ -1235,15 +1235,46 @@ const MapPicker: React.FC<MapPickerProps> = ({
       // Building click (3D extrusions) — must win over generic map click.
       try {
         const map = mapRef.current?.getMap();
-        const pt = event?.point;
-        if (map && pt) {
-          const buildingHits = map.queryRenderedFeatures(pt as any, { layers: ['3d-buildings'] });
+        const lngLat = event?.lngLat;
+        const lng = Number(lngLat?.lng);
+        const lat = Number(lngLat?.lat);
+        const point =
+          event?.point ?? (map && Number.isFinite(lng) && Number.isFinite(lat) ? map.project({ lng, lat }) : null);
+        if (map && point) {
+          // DEBUG (temporary): show which layers are under the cursor.
+          try {
+            const clickedLayerIds = map
+              .queryRenderedFeatures(point as any)
+              .map((f: any) => String(f?.layer?.id || ''))
+              .filter(Boolean);
+            console.log('Clicked layers:', Array.from(new Set(clickedLayerIds)));
+          } catch {
+            // ignore
+          }
+
+          // Fix layer-id mismatch by resolving the actual extrusion layer id.
+          const buildingLayerId =
+            (map.getLayer?.('3d-buildings') && '3d-buildings') ||
+            (() => {
+              const layers = map.getStyle?.()?.layers || [];
+              const cand = layers.find(
+                (l: any) => l?.type === 'fill-extrusion' && (l?.['source-layer'] === 'building' || l?.sourceLayer === 'building')
+              );
+              return cand?.id ? String(cand.id) : null;
+            })();
+
+          // BBOX query (10x10px) is much more reliable for 3D extrusions.
+          const width = 5;
+          const height = 5;
+          const bbox: [[number, number], [number, number]] = [
+            [point.x - width, point.y - height],
+            [point.x + width, point.y + height],
+          ];
+
+          const buildingHits = buildingLayerId ? map.queryRenderedFeatures(bbox as any, { layers: [buildingLayerId] }) : [];
           if (buildingHits && buildingHits.length > 0) {
             const f0: any = buildingHits[0];
             const id = f0?.id;
-            const lngLat = event?.lngLat;
-            const lng = Number(lngLat?.lng);
-            const lat = Number(lngLat?.lat);
             if (id != null && Number.isFinite(lng) && Number.isFinite(lat)) {
               // Clear previous selection
               const prevSelected = selectedBuildingIdRef.current;
