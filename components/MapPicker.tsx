@@ -646,15 +646,10 @@ const MapPicker: React.FC<MapPickerProps> = ({
   const { t, i18n } = useTranslation();
   const isRu = (i18n.language || '').toLowerCase().startsWith('ru');
   const mapRef = React.useRef<MapRef>(null);
-  const hoveredBuildingIdRef = React.useRef<number | string | null>(null);
-  const selectedBuildingIdRef = React.useRef<number | string | null>(null);
+  const hoveredBuildingIdRef = React.useRef<any>(null);
+  const selectedBuildingIdRef = React.useRef<any>(null);
   const alertedBuildingIdsRef = React.useRef<Set<number | string>>(new Set());
-  const [selectedBuildingInfo, setSelectedBuildingInfo] = useState<{
-    building_id: string;
-    height: number | null;
-    lng: number;
-    lat: number;
-  } | null>(null);
+  const [selectedBuildingInfo, setSelectedBuildingInfo] = useState<any>(null);
   const orderFormRef = React.useRef<HTMLFormElement>(null);
   const [viewState, setViewState] = useState({
     latitude: 42.0932,
@@ -1232,93 +1227,12 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
   const handleMapClickWithTowers = useCallback(
     (event: any) => {
-      // Building click (3D extrusions) — must win over generic map click.
-      try {
-        const map = mapRef.current?.getMap();
-        const lngLat = event?.lngLat;
-        const lng = Number(lngLat?.lng);
-        const lat = Number(lngLat?.lat);
-        const point =
-          event?.point ?? (map && Number.isFinite(lng) && Number.isFinite(lat) ? map.project({ lng, lat }) : null);
-        if (map && point) {
-          // DEBUG (temporary): show which layers are under the cursor.
-          try {
-            const clickedLayerIds = map
-              .queryRenderedFeatures(point as any)
-              .map((f: any) => String(f?.layer?.id || ''))
-              .filter(Boolean);
-            console.log('Clicked layers:', Array.from(new Set(clickedLayerIds)));
-          } catch {
-            // ignore
-          }
-
-          // Fix layer-id mismatch by resolving the actual extrusion layer id.
-          const buildingLayerId =
-            (map.getLayer?.('3d-buildings') && '3d-buildings') ||
-            (() => {
-              const layers = map.getStyle?.()?.layers || [];
-              const cand = layers.find(
-                (l: any) => l?.type === 'fill-extrusion' && (l?.['source-layer'] === 'building' || l?.sourceLayer === 'building')
-              );
-              return cand?.id ? String(cand.id) : null;
-            })();
-
-          // BBOX query (10x10px) is much more reliable for 3D extrusions.
-          const width = 5;
-          const height = 5;
-          const bbox: [[number, number], [number, number]] = [
-            [point.x - width, point.y - height],
-            [point.x + width, point.y + height],
-          ];
-
-          const buildingHits = buildingLayerId ? map.queryRenderedFeatures(bbox as any, { layers: [buildingLayerId] }) : [];
-          if (buildingHits && buildingHits.length > 0) {
-            const f0: any = buildingHits[0];
-            const id = f0?.id;
-            if (id != null && Number.isFinite(lng) && Number.isFinite(lat)) {
-              // Clear previous selection
-              const prevSelected = selectedBuildingIdRef.current;
-              if (prevSelected != null && prevSelected !== id) {
-                try {
-                  map.setFeatureState(
-                    { source: 'cm-composite', sourceLayer: 'building', id: prevSelected },
-                    { selected: false }
-                  );
-                } catch {
-                  // ignore
-                }
-              }
-
-              selectedBuildingIdRef.current = id;
-              try {
-                map.setFeatureState(
-                  { source: 'cm-composite', sourceLayer: 'building', id },
-                  { selected: true }
-                );
-              } catch {
-                // ignore
-              }
-
-              const heightRaw = f0?.properties?.height;
-              const height = heightRaw == null ? null : Number(heightRaw);
-
-              setSelectedBuildingInfo({
-                building_id: String(id),
-                height: Number.isFinite(height as number) ? (height as number) : null,
-                lng,
-                lat,
-              });
-
-              // Anchor mission location to the building footprint.
-              setSelectedLocation({ lat, lng });
-              onLocationSelect(lat, lng);
-              return;
-            }
-          }
-        }
-      } catch {
-        // ignore — fall back to normal routing
-      }
+      // Buildings are handled by native layer events (map.on('click','3d-buildings', ...)).
+      // Guard against conflicts: if the click included a building feature, do nothing here.
+      const clickedBuilding = Array.isArray(event?.features)
+        ? event.features.some((f: any) => f?.layer?.id === '3d-buildings')
+        : false;
+      if (clickedBuilding) return;
 
       // Ground click: clear any building selection.
       try {
@@ -1327,7 +1241,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
         if (map && prevSelected != null) {
           try {
             map.setFeatureState(
-              { source: 'cm-composite', sourceLayer: 'building', id: prevSelected },
+              { source: 'composite', sourceLayer: 'building', id: prevSelected },
               { selected: false }
             );
           } catch {
@@ -1385,7 +1299,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
       const prev = alertedBuildingIdsRef.current;
       for (const id of prev) {
         try {
-          map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id }, { alert: false });
+          map.setFeatureState({ source: 'composite', sourceLayer: 'building', id }, { alert: false });
         } catch {
           // ignore
         }
@@ -1421,7 +1335,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
       for (const id of next) {
         try {
-          map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id }, { alert: true });
+          map.setFeatureState({ source: 'composite', sourceLayer: 'building', id }, { alert: true });
         } catch {
           // ignore
         }
@@ -1922,10 +1836,11 @@ const MapPicker: React.FC<MapPickerProps> = ({
             description: descriptionToSave || orderDescription || '',
               selected_building: selectedBuildingInfo
                 ? {
-                    building_id: selectedBuildingInfo.building_id,
-                    height: selectedBuildingInfo.height,
-                    lat: selectedBuildingInfo.lat,
-                    lng: selectedBuildingInfo.lng,
+                    id: selectedBuildingInfo?.id ?? null,
+                    lngLat: selectedBuildingInfo?.lngLat ?? null,
+                    height: selectedBuildingInfo?.height ?? null,
+                    min_height: selectedBuildingInfo?.min_height ?? null,
+                    properties: selectedBuildingInfo?.properties ?? null,
                   }
                 : null,
           })
@@ -2709,25 +2624,11 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
           // NOTE: custom GLB models postponed — keep map functional without external 3D assets.
 
-          // Ensure building features have stable ids for feature-state.
-          // We can't mutate the built-in `composite` source, so we add our own vector source with promoteId.
-          try {
-            if (!map.getSource('cm-composite')) {
-              map.addSource('cm-composite', {
-                type: 'vector',
-                url: 'mapbox://mapbox.mapbox-streets-v8',
-                promoteId: { building: 'id' },
-              } as any);
-            }
-          } catch {
-            /* non-fatal */
-          }
-
           if (!map.getLayer('3d-buildings')) {
             map.addLayer(
               {
                 id: '3d-buildings',
-                source: 'cm-composite',
+                source: 'composite',
                 'source-layer': 'building',
                 filter: ['==', 'extrude', 'true'],
                 type: 'fill-extrusion',
@@ -2764,45 +2665,76 @@ const MapPicker: React.FC<MapPickerProps> = ({
           }
 
           // Hover + select interactivity for buildings (feature-state).
-          const clearHover = () => {
-            const prev = hoveredBuildingIdRef.current;
-            if (prev != null) {
-              try {
-                map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id: prev }, { hover: false });
-              } catch {
-                // ignore
-              }
+          const onClickBuildings = (ev: any) => {
+            const f = ev?.features?.[0];
+            if (!f) return;
+            const id = f.id;
+            if (id == null) return;
+
+            if (selectedBuildingIdRef.current != null && selectedBuildingIdRef.current !== id) {
+              map.setFeatureState(
+                { source: 'composite', sourceLayer: 'building', id: selectedBuildingIdRef.current },
+                { selected: false }
+              );
             }
-            hoveredBuildingIdRef.current = null;
-            map.getCanvas().style.cursor = '';
+            selectedBuildingIdRef.current = id;
+            map.setFeatureState(
+              { source: 'composite', sourceLayer: 'building', id: selectedBuildingIdRef.current },
+              { selected: true }
+            );
+
+            const lng = Number(ev?.lngLat?.lng);
+            const lat = Number(ev?.lngLat?.lat);
+
+            // CRITICAL: Hide the generic blue dot!
+            setSelectedLocation(null);
+
+            const props = f.properties || {};
+            const height = Number(props.height ?? props.render_height ?? props['height']);
+            const minHeight = Number(props.min_height ?? props['min_height']);
+
+            setSelectedBuildingInfo({
+              id,
+              lngLat: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null,
+              properties: props,
+              height: Number.isFinite(height) ? height : null,
+              min_height: Number.isFinite(minHeight) ? minHeight : null,
+            });
           };
 
-          map.on('mousemove', '3d-buildings', (ev: any) => {
-            if (!ev?.features?.length) return clearHover();
-            const f = ev.features[0];
-            const id = f?.id;
-            if (id == null) return clearHover();
-
-            if (hoveredBuildingIdRef.current !== id) {
-              const prev = hoveredBuildingIdRef.current;
-              if (prev != null) {
-                try {
-                  map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id: prev }, { hover: false });
-                } catch {
-                  // ignore
-                }
-              }
-              hoveredBuildingIdRef.current = id;
-              try {
-                map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id }, { hover: true });
-              } catch {
-                // ignore
-              }
-            }
+          const onMoveBuildings = (ev: any) => {
+            const f = ev?.features?.[0];
+            if (!f) return;
             map.getCanvas().style.cursor = 'pointer';
-          });
+            const nextId = f.id;
+            if (nextId == null) return;
+            if (hoveredBuildingIdRef.current != null && hoveredBuildingIdRef.current !== nextId) {
+              map.setFeatureState(
+                { source: 'composite', sourceLayer: 'building', id: hoveredBuildingIdRef.current },
+                { hover: false }
+              );
+            }
+            hoveredBuildingIdRef.current = nextId;
+            map.setFeatureState(
+              { source: 'composite', sourceLayer: 'building', id: hoveredBuildingIdRef.current },
+              { hover: true }
+            );
+          };
 
-          map.on('mouseleave', '3d-buildings', clearHover);
+          const onLeaveBuildings = () => {
+            map.getCanvas().style.cursor = '';
+            if (hoveredBuildingIdRef.current != null) {
+              map.setFeatureState(
+                { source: 'composite', sourceLayer: 'building', id: hoveredBuildingIdRef.current },
+                { hover: false }
+              );
+            }
+            hoveredBuildingIdRef.current = null;
+          };
+
+          map.on('mousemove', '3d-buildings', onMoveBuildings);
+          map.on('mouseleave', '3d-buildings', onLeaveBuildings);
+          map.on('click', '3d-buildings', onClickBuildings);
         }}
         mapStyle={customDarkStyle}
         mapboxAccessToken={MAPBOX_TOKEN}
@@ -2873,8 +2805,8 @@ const MapPicker: React.FC<MapPickerProps> = ({
 
         {selectedBuildingInfo && (
           <Popup
-            longitude={selectedBuildingInfo.lng}
-            latitude={selectedBuildingInfo.lat}
+            longitude={selectedBuildingInfo?.lngLat?.lng}
+            latitude={selectedBuildingInfo?.lngLat?.lat}
             anchor="bottom"
             closeButton={false}
             closeOnClick={false}
@@ -2888,9 +2820,9 @@ const MapPicker: React.FC<MapPickerProps> = ({
                     Selected building
                   </p>
                   <p className="mt-1 text-xs font-bold text-slate-100 truncate">
-                    ID: {selectedBuildingInfo.building_id}
+                    ID: {String(selectedBuildingInfo?.id ?? '')}
                   </p>
-                  {typeof selectedBuildingInfo.height === 'number' && (
+                  {typeof selectedBuildingInfo?.height === 'number' && (
                     <p className="mt-1 text-[11px] text-slate-300">
                       Height: {Math.round(selectedBuildingInfo.height)}m
                     </p>
@@ -2903,7 +2835,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
                     const prev = selectedBuildingIdRef.current;
                     if (map && prev != null) {
                       try {
-                        map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id: prev }, { selected: false });
+                        map.setFeatureState({ source: 'composite', sourceLayer: 'building', id: prev }, { selected: false });
                       } catch {
                         // ignore
                       }
@@ -3408,7 +3340,7 @@ const MapPicker: React.FC<MapPickerProps> = ({
                         const prev = selectedBuildingIdRef.current;
                         if (map && prev != null) {
                           try {
-                            map.setFeatureState({ source: 'cm-composite', sourceLayer: 'building', id: prev }, { selected: false });
+                            map.setFeatureState({ source: 'composite', sourceLayer: 'building', id: prev }, { selected: false });
                           } catch {
                             // ignore
                           }
